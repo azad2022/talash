@@ -1,0 +1,6 @@
+{
+  "name": "طلاش",
+  "description": "سیستم مدیریت آفلاین و لوکس گالری طلا و جواهرات گیلدار",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
