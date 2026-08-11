@@ -68,6 +68,7 @@ class BackupRestoreUseCase {
                     put("minStock", p.minStock)
                     put("purchasePrice", p.purchasePrice)
                     put("customBarcode", p.customBarcode)
+                    put("isDeleted", p.isDeleted)
                     put("createdAt", p.createdAt)
                 })
             }
@@ -230,6 +231,7 @@ class BackupRestoreUseCase {
                             minStock = obj.optInt("minStock", 1),
                             purchasePrice = obj.optDouble("purchasePrice", 0.0),
                             customBarcode = obj.optString("customBarcode", ""),
+                            isDeleted = obj.optBoolean("isDeleted", false),
                             createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                         )
                     )

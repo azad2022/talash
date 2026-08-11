@@ -546,7 +546,9 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                         productId = draft.product.id,
                         quantity = draft.qty,
                         unitPrice = unitPriceBd.toDouble(),
-                        total = draftTotalBd.toDouble()
+                        total = draftTotalBd.toDouble(),
+                        customWeight = draft.product.weightGram,
+                        customName = draft.product.name
                     )
                 }
 

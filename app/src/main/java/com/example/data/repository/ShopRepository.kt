@@ -232,8 +232,14 @@ class ShopRepository(
     }
 
     suspend fun deleteProduct(product: Product) {
-        shopDao.deleteProduct(product)
-        logAction("DELETE_PRODUCT", "حذف کالا از انبار: ${product.name}")
+        val saleCount = shopDao.getSaleItemCountForProduct(product.id)
+        if (saleCount > 0) {
+            shopDao.softDeleteProduct(product.id)
+            logAction("SOFT_DELETE_PRODUCT", "آرشیو کالا به دلیل داشتن سابقه فروش: ${product.name}")
+        } else {
+            shopDao.deleteProduct(product)
+            logAction("DELETE_PRODUCT", "حذف کالا از انبار: ${product.name}")
+        }
     }
 
     // --- INVOICES (SALES TRANSACTION) ---

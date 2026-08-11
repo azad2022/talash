@@ -31,7 +31,7 @@ interface ShopDao {
     suspend fun deleteCustomer(customer: Customer)
 
     // --- PRODUCTS ---
-    @Query("SELECT * FROM products ORDER BY name ASC")
+    @Query("SELECT * FROM products WHERE isDeleted = 0 ORDER BY name ASC")
     fun getAllProducts(): Flow<List<Product>>
 
     @Query("SELECT * FROM products WHERE id = :id LIMIT 1")
@@ -45,6 +45,12 @@ interface ShopDao {
 
     @Query("UPDATE products SET stock = stock - :quantity WHERE id = :productId AND stock >= :quantity")
     suspend fun decreaseProductStock(productId: Int, quantity: Int): Int
+
+    @Query("UPDATE products SET isDeleted = 1 WHERE id = :productId")
+    suspend fun softDeleteProduct(productId: Int)
+
+    @Query("SELECT COUNT(*) FROM sale_items WHERE productId = :productId")
+    suspend fun getSaleItemCountForProduct(productId: Int): Int
 
     @Delete
     suspend fun deleteProduct(product: Product)

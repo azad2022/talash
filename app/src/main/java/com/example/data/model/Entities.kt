@@ -48,6 +48,7 @@ data class Product(
     val imagePath5: String? = null,
     val purchasePrice: Double = 0.0,
     val customBarcode: String = "",
+    val isDeleted: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     // Convenience helper to estimate potential selling price based on basic gold price
