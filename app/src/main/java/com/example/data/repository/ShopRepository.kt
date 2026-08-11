@@ -246,20 +246,40 @@ class ShopRepository(
         items: List<SaleItem>,
         installments: List<Installment>
     ): Long {
+        if (items.isEmpty()) {
+            throw IllegalArgumentException("فاکتور باید حداقل شامل یک کالا باشد.")
+        }
+
         return appDatabase.withTransaction {
-            val invoiceId = shopDao.insertInvoice(invoice).toInt()
-            
+            // Validate stock and decrease stock atomically for all items first
             items.forEach { item ->
-                val finalItem = item.copy(invoiceId = invoiceId)
-                shopDao.insertSaleItem(finalItem)
-                
+                if (item.quantity <= 0) {
+                    throw IllegalArgumentException("تعداد درخواست شده برای کالا باید بیشتر از صفر باشد.")
+                }
+
                 val prod = shopDao.getProductById(item.productId)
-                if (prod != null) {
-                    val newStock = (prod.stock - item.quantity).coerceAtLeast(0)
-                    shopDao.updateProductStock(prod.id, newStock)
+                    ?: throw IllegalStateException("کالای مورد نظر یافت نشد.")
+
+                if (item.quantity > prod.stock) {
+                    throw IllegalStateException("موجودی کالا (${prod.name}) کافی نیست. موجودی فعلی: ${prod.stock}، مقدار درخواستی: ${item.quantity}")
+                }
+
+                val updatedRows = shopDao.decreaseProductStock(prod.id, item.quantity)
+                if (updatedRows == 0) {
+                    throw IllegalStateException("موجودی کالا (${prod.name}) کافی نیست یا همزمان تغییر کرده است.")
                 }
             }
 
+            // Save central invoice
+            val invoiceId = shopDao.insertInvoice(invoice).toInt()
+
+            // Save all sub-items
+            items.forEach { item ->
+                val finalItem = item.copy(invoiceId = invoiceId)
+                shopDao.insertSaleItem(finalItem)
+            }
+
+            // Save installments if it is an installment payment
             if (invoice.paymentType == "INSTALLMENT") {
                 installments.forEach { installment ->
                     val finalInstallment = installment.copy(invoiceId = invoiceId)

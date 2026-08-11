@@ -2827,15 +2827,20 @@ fun InvoiceScreen(
                                 if (viewModel.draftCustomer == null) {
                                     Toast.makeText(context, "لطفاً ابتدا خریدار را مشخص کنید", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    val success = viewModel.submitCurrentDraftInvoice { newInvoiceId ->
-                                        if (newInvoiceId > 0) {
-                                            Toast.makeText(context, "فاکتور با موفقیت صادر شد", Toast.LENGTH_SHORT).show()
-                                            viewModel.showInvoiceReceiptSimulationById(context, newInvoiceId)
-                                            onNavigateToTab?.invoke("reports")
-                                        } else {
-                                            Toast.makeText(context, "خطا در ثبت فاکتور", Toast.LENGTH_SHORT).show()
+                                    val success = viewModel.submitCurrentDraftInvoice(
+                                        onError = { errorMsg ->
+                                            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                        },
+                                        onSuccess = { newInvoiceId ->
+                                            if (newInvoiceId > 0) {
+                                                Toast.makeText(context, "فاکتور با موفقیت صادر شد", Toast.LENGTH_SHORT).show()
+                                                viewModel.showInvoiceReceiptSimulationById(context, newInvoiceId)
+                                                onNavigateToTab?.invoke("reports")
+                                            } else {
+                                                Toast.makeText(context, "خطا در ثبت فاکتور", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
-                                    }
+                                    )
                                     if (!success) {
                                         Toast.makeText(context, "خطا در پردازش اطلاعات فاکتور", Toast.LENGTH_SHORT).show()
                                     }

@@ -43,6 +43,9 @@ interface ShopDao {
     @Query("UPDATE products SET stock = :newStock WHERE id = :productId")
     suspend fun updateProductStock(productId: Int, newStock: Int)
 
+    @Query("UPDATE products SET stock = stock - :quantity WHERE id = :productId AND stock >= :quantity")
+    suspend fun decreaseProductStock(productId: Int, quantity: Int): Int
+
     @Delete
     suspend fun deleteProduct(product: Product)
 

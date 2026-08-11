@@ -508,7 +508,10 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             return (total - disc).coerceAtLeast(0.0)
         }
 
-    fun submitCurrentDraftInvoice(onSuccess: (Int) -> Unit): Boolean {
+    fun submitCurrentDraftInvoice(
+        onError: ((String) -> Unit)? = null,
+        onSuccess: (Int) -> Unit
+    ): Boolean {
         val cust = draftCustomer ?: return false
         if (draftItems.isEmpty()) return false
 
@@ -518,58 +521,62 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         val instCountVal = draftInstallmentsCountInput.toIntOrNull() ?: 0
 
         viewModelScope.launch {
-            val user = repository.getOrInitializeUser()
-            val taxEst = totalAmt * (user.taxPercent / (100.0 + user.taxPercent)) // back-calculated tax
-            
-            val saleInvoice = SaleInvoice(
-                customerId = cust.id,
-                totalAmount = totalAmt,
-                discount = discVal,
-                tax = taxEst,
-                paidAmount = if (draftPaymentType == "CASH") totalAmt else prepaymentVal,
-                paymentType = draftPaymentType,
-                installmentsCount = instCountVal,
-                prepayment = prepaymentVal
-            )
-
-            // Convert drafts to SaleItem
-            val itemsToSave = draftItems.map { draft ->
-                SaleItem(
-                    invoiceId = 0,
-                    productId = draft.product.id,
-                    quantity = draft.qty,
-                    unitPrice = draft.exactSalePrice / draft.qty,
-                    total = draft.exactSalePrice
+            try {
+                val user = repository.getOrInitializeUser()
+                val taxEst = totalAmt * (user.taxPercent / (100.0 + user.taxPercent)) // back-calculated tax
+                
+                val saleInvoice = SaleInvoice(
+                    customerId = cust.id,
+                    totalAmount = totalAmt,
+                    discount = discVal,
+                    tax = taxEst,
+                    paidAmount = if (draftPaymentType == "CASH") totalAmt else prepaymentVal,
+                    paymentType = draftPaymentType,
+                    installmentsCount = instCountVal,
+                    prepayment = prepaymentVal
                 )
-            }
 
-            // Create installments list
-            val installmentsList = mutableListOf<Installment>()
-            if (draftPaymentType == "INSTALLMENT" && instCountVal > 0) {
-                val remAmount = (totalAmt - prepaymentVal).coerceAtLeast(0.0)
-                val perMonthAmount = remAmount / instCountVal
-                val calendar = Calendar.getInstance()
-                for (i in 1..instCountVal) {
-                    calendar.add(Calendar.MONTH, 1)
-                    installmentsList.add(
-                        Installment(
-                            invoiceId = 0,
-                            dueDate = calendar.timeInMillis,
-                            amount = perMonthAmount,
-                            paid = false
-                        )
+                // Convert drafts to SaleItem
+                val itemsToSave = draftItems.map { draft ->
+                    SaleItem(
+                        invoiceId = 0,
+                        productId = draft.product.id,
+                        quantity = draft.qty,
+                        unitPrice = draft.exactSalePrice / draft.qty,
+                        total = draft.exactSalePrice
                     )
                 }
+
+                // Create installments list
+                val installmentsList = mutableListOf<Installment>()
+                if (draftPaymentType == "INSTALLMENT" && instCountVal > 0) {
+                    val remAmount = (totalAmt - prepaymentVal).coerceAtLeast(0.0)
+                    val perMonthAmount = remAmount / instCountVal
+                    val calendar = Calendar.getInstance()
+                    for (i in 1..instCountVal) {
+                        calendar.add(Calendar.MONTH, 1)
+                        installmentsList.add(
+                            Installment(
+                                invoiceId = 0,
+                                dueDate = calendar.timeInMillis,
+                                amount = perMonthAmount,
+                                paid = false
+                            )
+                        )
+                    }
+                }
+
+                val generatedInvoiceId = repository.createInvoice(
+                    invoice = saleInvoice,
+                    items = itemsToSave,
+                    installments = installmentsList
+                ).toInt()
+
+                clearInvoiceCart()
+                onSuccess(generatedInvoiceId)
+            } catch (e: Exception) {
+                onError?.invoke(e.localizedMessage ?: e.message ?: "خطا در ثبت فاکتور")
             }
-
-            val generatedInvoiceId = repository.createInvoice(
-                invoice = saleInvoice,
-                items = itemsToSave,
-                installments = installmentsList
-            ).toInt()
-
-            clearInvoiceCart()
-            onSuccess(generatedInvoiceId)
         }
 
         return true
