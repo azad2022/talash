@@ -151,14 +151,14 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
     var showGoldPriceEditDialog by remember { mutableStateOf(false) }
 
     // Live daily rate tracker shown in Top bar
-    val rawGoldPrice = userConfig?.dailyGoldPrice ?: 0.0
-    val formattedGoldRate = if (rawGoldPrice <= 0.0) "تنظیم نشده" else "${viewModel.formatCurrency(rawGoldPrice)} تومان"
+    val rawGoldPrice = userConfig?.dailyGoldPrice ?: java.math.BigDecimal.ZERO
+    val formattedGoldRate = if (rawGoldPrice <= java.math.BigDecimal.ZERO) "تنظیم نشده" else "${viewModel.formatCurrency(rawGoldPrice)} تومان"
 
     // Gold Price Editing Popup Dialog
     if (showGoldPriceEditDialog) {
         var localMode by remember { mutableStateOf(viewModel.goldPriceMode) }
         var localApiKey by remember { mutableStateOf(viewModel.goldPriceApiKey) }
-        var goldPriceInput by remember(rawGoldPrice) { mutableStateOf(if (rawGoldPrice > 0.0) rawGoldPrice.toLong().toString() else "0") }
+        var goldPriceInput by remember(rawGoldPrice) { mutableStateOf(if (rawGoldPrice > java.math.BigDecimal.ZERO) rawGoldPrice.toLong().toString() else "0") }
         
         AlertDialog(
             onDismissRequest = { showGoldPriceEditDialog = false },

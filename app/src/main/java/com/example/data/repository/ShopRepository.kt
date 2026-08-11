@@ -242,6 +242,11 @@ class ShopRepository(
         }
     }
 
+    suspend fun unarchiveProduct(productId: Int) {
+        shopDao.unarchiveProduct(productId)
+        logAction("UNARCHIVE_PRODUCT", "خروج کالا از حالت آرشیو با شناسه: $productId")
+    }
+
     // --- INVOICES (SALES TRANSACTION) ---
     val invoices: Flow<List<InvoiceWithDetails>> = shopDao.getInvoicesWithDetails()
 

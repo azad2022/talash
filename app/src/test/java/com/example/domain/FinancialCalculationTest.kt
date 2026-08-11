@@ -200,7 +200,7 @@ class FinancialCalculationTest {
         val discount = 500_000.0
 
         val itemsSumBd = items.fold(BigDecimal.ZERO) { acc, item ->
-            acc.add(BigDecimal.valueOf(item.total).setScale(0, RoundingMode.HALF_UP))
+            acc.add(item.total.setScale(0, RoundingMode.HALF_UP))
         }
         val discountBd = BigDecimal.valueOf(discount).setScale(0, RoundingMode.HALF_UP)
         val expectedPayable = itemsSumBd.subtract(discountBd).toDouble()

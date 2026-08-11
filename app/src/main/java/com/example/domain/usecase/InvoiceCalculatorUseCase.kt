@@ -5,13 +5,36 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 data class InvoiceSummary(
-    val subtotal: Double,
-    val totalDiscount: Double,
-    val totalTax: Double,
-    val finalPayable: Double,
-    val prepayment: Double,
-    val remainingBalance: Double
-)
+    val subtotalBd: BigDecimal,
+    val totalDiscountBd: BigDecimal,
+    val totalTaxBd: BigDecimal,
+    val finalPayableBd: BigDecimal,
+    val prepaymentBd: BigDecimal,
+    val remainingBalanceBd: BigDecimal
+) {
+    val subtotal: Double get() = subtotalBd.toDouble()
+    val totalDiscount: Double get() = totalDiscountBd.toDouble()
+    val totalTax: Double get() = totalTaxBd.toDouble()
+    val finalPayable: Double get() = finalPayableBd.toDouble()
+    val prepayment: Double get() = prepaymentBd.toDouble()
+    val remainingBalance: Double get() = remainingBalanceBd.toDouble()
+
+    constructor(
+        subtotal: Double,
+        totalDiscount: Double,
+        totalTax: Double,
+        finalPayable: Double,
+        prepayment: Double,
+        remainingBalance: Double
+    ) : this(
+        subtotalBd = BigDecimal.valueOf(subtotal),
+        totalDiscountBd = BigDecimal.valueOf(totalDiscount),
+        totalTaxBd = BigDecimal.valueOf(totalTax),
+        finalPayableBd = BigDecimal.valueOf(finalPayable),
+        prepaymentBd = BigDecimal.valueOf(prepayment),
+        remainingBalanceBd = BigDecimal.valueOf(remainingBalance)
+    )
+}
 
 class InvoiceCalculatorUseCase {
 
@@ -29,14 +52,16 @@ class InvoiceCalculatorUseCase {
      * Back-calculates tax from tax-inclusive total amount using BigDecimal:
      * Tax = totalAmount * taxPercent / (100 + taxPercent)
      */
-    fun calculateBackTax(totalAmount: Double, taxPercent: Double): Double {
-        if (totalAmount <= 0.0 || taxPercent <= 0.0) return 0.0
-        val totalBd = BigDecimal.valueOf(totalAmount).setScale(0, RoundingMode.HALF_UP)
-        val taxRateBd = BigDecimal.valueOf(taxPercent)
-        val divisorBd = BigDecimal.valueOf(100.0).add(taxRateBd)
+    fun calculateBackTax(totalAmount: BigDecimal, taxPercent: BigDecimal): BigDecimal {
+        if (totalAmount <= BigDecimal.ZERO || taxPercent <= BigDecimal.ZERO) return BigDecimal.ZERO
+        val totalBd = totalAmount.setScale(0, RoundingMode.HALF_UP)
+        val divisorBd = BigDecimal.valueOf(100).add(taxPercent)
 
-        val taxBd = totalBd.multiply(taxRateBd).divide(divisorBd, 0, RoundingMode.HALF_UP)
-        return taxBd.toDouble()
+        return totalBd.multiply(taxPercent).divide(divisorBd, 0, RoundingMode.HALF_UP)
+    }
+
+    fun calculateBackTax(totalAmount: Double, taxPercent: Double): Double {
+        return calculateBackTax(BigDecimal.valueOf(totalAmount), BigDecimal.valueOf(taxPercent)).toDouble()
     }
 
     /**
@@ -44,31 +69,45 @@ class InvoiceCalculatorUseCase {
      */
     fun calculateInvoiceSummary(
         items: List<SaleItem>,
+        discountAmount: BigDecimal = BigDecimal.ZERO,
+        taxPercent: BigDecimal = BigDecimal("9.0"),
+        prepayment: BigDecimal = BigDecimal.ZERO
+    ): InvoiceSummary {
+        val subtotalBd = items.fold(BigDecimal.ZERO) { acc, item ->
+            acc.add(item.total.setScale(0, RoundingMode.HALF_UP))
+        }
+
+        val discountBd = discountAmount.setScale(0, RoundingMode.HALF_UP)
+        val discountedSubtotalBd = subtotalBd.subtract(discountBd).max(BigDecimal.ZERO)
+
+        val taxRateBd = taxPercent.divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_UP)
+        val taxBd = discountedSubtotalBd.multiply(taxRateBd).setScale(0, RoundingMode.HALF_UP)
+
+        val finalPayableBd = discountedSubtotalBd.add(taxBd)
+        val prepaymentBd = prepayment.setScale(0, RoundingMode.HALF_UP)
+        val remainingBalanceBd = finalPayableBd.subtract(prepaymentBd).max(BigDecimal.ZERO)
+
+        return InvoiceSummary(
+            subtotalBd = subtotalBd,
+            totalDiscountBd = discountBd,
+            totalTaxBd = taxBd,
+            finalPayableBd = finalPayableBd,
+            prepaymentBd = prepaymentBd,
+            remainingBalanceBd = remainingBalanceBd
+        )
+    }
+
+    fun calculateInvoiceSummary(
+        items: List<SaleItem>,
         discountAmount: Double = 0.0,
         taxPercent: Double = 9.0,
         prepayment: Double = 0.0
     ): InvoiceSummary {
-        val subtotalBd = items.fold(BigDecimal.ZERO) { acc, item ->
-            acc.add(BigDecimal.valueOf(item.total).setScale(0, RoundingMode.HALF_UP))
-        }
-
-        val discountBd = BigDecimal.valueOf(discountAmount).setScale(0, RoundingMode.HALF_UP)
-        val discountedSubtotalBd = subtotalBd.subtract(discountBd).max(BigDecimal.ZERO)
-
-        val taxRateBd = BigDecimal.valueOf(taxPercent).divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_UP)
-        val taxBd = discountedSubtotalBd.multiply(taxRateBd).setScale(0, RoundingMode.HALF_UP)
-
-        val finalPayableBd = discountedSubtotalBd.add(taxBd)
-        val prepaymentBd = BigDecimal.valueOf(prepayment).setScale(0, RoundingMode.HALF_UP)
-        val remainingBalanceBd = finalPayableBd.subtract(prepaymentBd).max(BigDecimal.ZERO)
-
-        return InvoiceSummary(
-            subtotal = subtotalBd.toDouble(),
-            totalDiscount = discountBd.toDouble(),
-            totalTax = taxBd.toDouble(),
-            finalPayable = finalPayableBd.toDouble(),
-            prepayment = prepaymentBd.toDouble(),
-            remainingBalance = remainingBalanceBd.toDouble()
+        return calculateInvoiceSummary(
+            items = items,
+            discountAmount = BigDecimal.valueOf(discountAmount),
+            taxPercent = BigDecimal.valueOf(taxPercent),
+            prepayment = BigDecimal.valueOf(prepayment)
         )
     }
 
@@ -76,22 +115,26 @@ class InvoiceCalculatorUseCase {
      * Splits remaining balance among N installments deterministically using integer BigDecimal division.
      * Guarantees that sum(installments) == remainingAmount EXACTLY by adding any remainder to the last installment.
      */
-    fun calculateInstallments(remainingAmount: Double, installmentsCount: Int): List<Double> {
-        if (installmentsCount <= 0 || remainingAmount <= 0.0) return emptyList()
+    fun calculateInstallments(remainingAmount: BigDecimal, installmentsCount: Int): List<BigDecimal> {
+        if (installmentsCount <= 0 || remainingAmount <= BigDecimal.ZERO) return emptyList()
 
-        val totalRemBd = BigDecimal.valueOf(remainingAmount).setScale(0, RoundingMode.HALF_UP)
+        val totalRemBd = remainingAmount.setScale(0, RoundingMode.HALF_UP)
         val countBd = BigDecimal.valueOf(installmentsCount.toLong())
 
         val baseAmountBd = totalRemBd.divide(countBd, 0, RoundingMode.DOWN)
         val sumBaseBd = baseAmountBd.multiply(countBd)
         val remainderBd = totalRemBd.subtract(sumBaseBd)
 
-        val result = MutableList(installmentsCount) { baseAmountBd.toDouble() }
+        val result = MutableList(installmentsCount) { baseAmountBd }
         if (remainderBd > BigDecimal.ZERO) {
             val lastIdx = installmentsCount - 1
-            result[lastIdx] = baseAmountBd.add(remainderBd).toDouble()
+            result[lastIdx] = baseAmountBd.add(remainderBd)
         }
         return result
+    }
+
+    fun calculateInstallments(remainingAmount: Double, installmentsCount: Int): List<Double> {
+        return calculateInstallments(BigDecimal.valueOf(remainingAmount), installmentsCount).map { it.toDouble() }
     }
 }
 

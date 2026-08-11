@@ -49,6 +49,9 @@ interface ShopDao {
     @Query("UPDATE products SET isDeleted = 1 WHERE id = :productId")
     suspend fun softDeleteProduct(productId: Int)
 
+    @Query("UPDATE products SET isDeleted = 0 WHERE id = :productId")
+    suspend fun unarchiveProduct(productId: Int)
+
     @Query("SELECT COUNT(*) FROM sale_items WHERE productId = :productId")
     suspend fun getSaleItemCountForProduct(productId: Int): Int
 

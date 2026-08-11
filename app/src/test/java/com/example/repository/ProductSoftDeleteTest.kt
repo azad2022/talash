@@ -60,7 +60,7 @@ class ProductSoftDeleteTest {
         val prod = shopDao.getProductById(prodId)!!
 
         val invoice = SaleInvoice(customerId = customerId, totalAmount = 15000000.0, discount = 0.0, tax = 0.0, paidAmount = 15000000.0, paymentType = "CASH")
-        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 2, unitPrice = 7500000.0, total = 15000000.0, customName = prod.name, customWeight = prod.weightGram))
+        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 2, unitPrice = 7500000.0, total = 15000000.0, customName = prod.name, customWeight = prod.weightGram.toDouble()))
         repository.createInvoice(invoice, items, emptyList())
 
         // Delete product via repository
@@ -85,7 +85,7 @@ class ProductSoftDeleteTest {
         val prod = shopDao.getProductById(prodId)!!
 
         val invoice = SaleInvoice(customerId = customerId, totalAmount = 30000000.0, discount = 0.0, tax = 0.0, paidAmount = 30000000.0, paymentType = "CASH")
-        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 3, unitPrice = 10000000.0, total = 30000000.0, customName = prod.name, customWeight = prod.weightGram))
+        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 3, unitPrice = 10000000.0, total = 30000000.0, customName = prod.name, customWeight = prod.weightGram.toDouble()))
         val invoiceId = repository.createInvoice(invoice, items, emptyList()).toInt()
 
         // Stock decreased to 7
@@ -130,7 +130,7 @@ class ProductSoftDeleteTest {
         val prod = shopDao.getProductById(prodId)!!
 
         val invoice = SaleInvoice(customerId = customerId, totalAmount = 40000000.0, discount = 0.0, tax = 0.0, paidAmount = 40000000.0, paymentType = "CASH")
-        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 40000000.0, total = 40000000.0, customName = prod.name, customWeight = prod.weightGram))
+        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 40000000.0, total = 40000000.0, customName = prod.name, customWeight = prod.weightGram.toDouble()))
         repository.createInvoice(invoice, items, emptyList())
 
         // Soft delete product
@@ -164,7 +164,7 @@ class ProductSoftDeleteTest {
         val prod = shopDao.getProductById(prodId)!!
 
         val invoice = SaleInvoice(customerId = customerId, totalAmount = 12000000.0, discount = 0.0, tax = 0.0, paidAmount = 12000000.0, paymentType = "CASH")
-        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 12000000.0, total = 12000000.0, customName = prod.name, customWeight = prod.weightGram))
+        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 12000000.0, total = 12000000.0, customName = prod.name, customWeight = prod.weightGram.toDouble()))
         val invoiceId = repository.createInvoice(invoice, items, emptyList()).toInt()
 
         // Soft delete product

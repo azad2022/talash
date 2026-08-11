@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.widget.Toast
+import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
@@ -239,8 +240,8 @@ fun DashboardScreen(
     val listInstallments by viewModel.installments.collectAsState()
 
     val userConfig by viewModel.userConfig.collectAsState()
-    val dailyPrice = userConfig?.dailyGoldPrice ?: 0.0
-    val taxRate = userConfig?.taxPercent ?: 9.0
+    val dailyPrice: Double = (userConfig?.dailyGoldPrice ?: BigDecimal.ZERO).toDouble()
+    val taxRate: Double = (userConfig?.taxPercent ?: BigDecimal("9.0")).toDouble()
 
     // Calculating Inventory Value and dynamic stats
     val totalInventoryValue = listProducts.sumOf { product ->
@@ -263,10 +264,10 @@ fun DashboardScreen(
         )
         itemEst * product.stock
     }
-    val totalGoldWeight = listProducts.sumOf { it.weightGram * it.stock }
+    val totalGoldWeight = listProducts.sumOf { it.weightGram.toDouble() * it.stock }
     val totalPiecesCount = listProducts.sumOf { it.stock }
 
-    val totalTodaySales = listInvoices.sumOf { it.invoice.totalAmount }
+    val totalTodaySales = listInvoices.fold(BigDecimal.ZERO) { acc, inv -> acc.add(inv.invoice.totalAmount) }.toDouble()
     val estimatedTodayProfit = totalTodaySales * 0.07 // 7% legal standard profit in gold trading
     val readyRepairs = listRepairs.filter { it.repair.status == "READY" }
     val lowStockCount = listProducts.filter { it.stock <= it.minStock }.size
@@ -809,7 +810,7 @@ fun DashboardScreen(
                             } else {
                                 it.category == pc.title
                             }
-                        }.sumOf { it.weightGram * it.stock }
+                        }.sumOf { it.weightGram.toDouble() * it.stock }
                     }
                     val totalStockWeight = categoryWeights.values.sum()
 
@@ -1315,8 +1316,8 @@ fun WarehouseScreen(
     val context = LocalContext.current
     val listProducts by viewModel.products.collectAsState()
     val userConfig by viewModel.userConfig.collectAsState()
-    val dailyPrice = userConfig?.dailyGoldPrice ?: 0.0
-    val taxRate = userConfig?.taxPercent ?: 9.0
+    val dailyPrice: Double = (userConfig?.dailyGoldPrice ?: BigDecimal.ZERO).toDouble()
+    val taxRate: Double = (userConfig?.taxPercent ?: BigDecimal("9.0")).toDouble()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategoryFilter by remember { mutableStateOf("همه") }
@@ -1670,7 +1671,7 @@ fun WarehouseScreen(
                                             addKarat = product.karat
                                             addStock = product.stock.toString()
                                             addMinStock = product.minStock.toString()
-                                            addPurchasePrice = if (product.purchasePrice > 0.0) product.purchasePrice.toLong().toString() else ""
+                                            addPurchasePrice = if (product.purchasePrice > BigDecimal.ZERO) product.purchasePrice.toLong().toString() else ""
                                             img1 = product.imagePath
                                             img2 = product.imagePath2
                                             img3 = product.imagePath3
@@ -1706,7 +1707,7 @@ fun WarehouseScreen(
                                 }
                             }
 
-                            if (product.purchasePrice > 0.0) {
+                            if (product.purchasePrice > BigDecimal.ZERO) {
                                 Spacer(Modifier.height(12.dp))
 
                                 val estimatedSalePrice = product.calculateAssetValue(
@@ -1726,7 +1727,7 @@ fun WarehouseScreen(
                                     rateCurrencyGbp = viewModel.rateCurrencyGbp,
                                     taxRate = taxRate
                                 )
-                                val singleProfit = estimatedSalePrice - product.purchasePrice
+                                val singleProfit = estimatedSalePrice - product.purchasePrice.toDouble()
                                 val totalProfit = singleProfit * product.stock
                                 val isProfit = singleProfit >= 0.0
 
@@ -3829,7 +3830,7 @@ fun SettingsScreen(
     val userConfig by viewModel.userConfig.collectAsState()
 
     var isWipeDialogConfirmOpen by remember { mutableStateOf(false) }
-    var priceSettingInput by remember(userConfig) { mutableStateOf(userConfig?.dailyGoldPrice?.let { if (it > 0.0) it.toLong().toString() else "0" } ?: "0") }
+    var priceSettingInput by remember(userConfig) { mutableStateOf(userConfig?.dailyGoldPrice?.let { if (it > BigDecimal.ZERO) it.toLong().toString() else "0" } ?: "0") }
     var taxSettingInput by remember { mutableStateOf(userConfig?.taxPercent?.toString() ?: "9.0") }
 
     LazyColumn(
@@ -4792,7 +4793,7 @@ fun BaseRatesSettingsCard(viewModel: com.example.ui.viewmodel.ShopViewModel) {
     var localApiKey by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(viewModel.goldPriceApiKey) }
 
     val userConfigState = viewModel.userConfig.collectAsState()
-    val dailyPrice = userConfigState.value?.dailyGoldPrice ?: 0.0
+    val dailyPrice = (userConfigState.value?.dailyGoldPrice ?: BigDecimal.ZERO).toDouble()
 
     androidx.compose.material3.Card(
         modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -4958,7 +4959,7 @@ fun BaseRatesSettingsCard(viewModel: com.example.ui.viewmodel.ShopViewModel) {
             Text("لیست زنده نرخ دارایی‌های انبار طلا و سکه:", fontSize = 12.sp, color = MetallicGold, fontWeight = FontWeight.Bold)
 
             // Grid containing 14 items
-            val ratesList = listOf(
+            val ratesList = listOf<Triple<String, String, Double>>(
                 Triple("طلای ۱۸ عیار (مبنا)", "rate_gold_18k", dailyPrice),
                 Triple("طلای ۲۴ عیار", "rate_gold_24k", viewModel.rateGold24k),
                 Triple("طلای آبشده نقدی", "rate_gold_melted", viewModel.rateGoldMelted),

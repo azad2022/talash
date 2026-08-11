@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.math.BigDecimal
 import java.security.MessageDigest
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -196,7 +197,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             val user = repository.getOrInitializeUser()
             _isPinSetupRequired.value = user.pinHash.isEmpty()
             _isAuthenticated.value = user.pinHash.isEmpty() // Auto authenticate if no pin set
-            calcGoldPriceToday = if (user.dailyGoldPrice > 0.0) user.dailyGoldPrice.toLong().toString() else "0"
+            calcGoldPriceToday = if (user.dailyGoldPrice > BigDecimal.ZERO) user.dailyGoldPrice.toLong().toString() else "0"
             repository.logAction("APP_LAUNCH", "ورود به پایگاه داده گیلدار")
             
             // Auto sync online gold price if config is ONLINE
@@ -286,8 +287,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             val todayPrice = calcGoldPriceToday.toDoubleOrNull() ?: 0.0
             val taxVal = calcTaxRate.toDoubleOrNull() ?: 9.0
             val user = repository.getOrInitializeUser().copy(
-                dailyGoldPrice = todayPrice,
-                taxPercent = taxVal
+                dailyGoldPrice = BigDecimal.valueOf(todayPrice),
+                taxPercent = BigDecimal.valueOf(taxVal)
             )
             repository.updateUser(user)
         }
@@ -295,7 +296,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
     fun updateGoldPrice(newPrice: Double) {
         viewModelScope.launch {
-            val user = repository.getOrInitializeUser().copy(dailyGoldPrice = newPrice)
+            val user = repository.getOrInitializeUser().copy(dailyGoldPrice = BigDecimal.valueOf(newPrice))
             repository.updateUser(user)
         }
     }
@@ -460,7 +461,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             val user = repository.getOrInitializeUser()
             // Estimate price based on daily base price / live category price
             val estimatedPrice = product.calculateAssetValue(
-                dailyPrice18k = user.dailyGoldPrice,
+                dailyPrice18k = user.dailyGoldPrice.toDouble(),
                 rateGold24k = rateGold24k,
                 rateGoldMelted = rateGoldMelted,
                 rateGoldOunce = rateGoldOunce,
@@ -474,7 +475,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 rateCurrencyEur = rateCurrencyEur,
                 rateCurrencyAed = rateCurrencyAed,
                 rateCurrencyGbp = rateCurrencyGbp,
-                taxRate = user.taxPercent
+                taxRate = user.taxPercent.toDouble()
             )
             val unitPriceBd = java.math.BigDecimal.valueOf(estimatedPrice).setScale(0, java.math.RoundingMode.HALF_UP)
             val index = draftItems.indexOfFirst { it.product.id == product.id }
@@ -488,8 +489,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 )
             } else {
                 val totalBd = unitPriceBd.multiply(java.math.BigDecimal.valueOf(quantity.toLong())).setScale(0, java.math.RoundingMode.HALF_UP)
-                val customGramPriceBd = if (product.weightGram > 0.0) {
-                    unitPriceBd.divide(java.math.BigDecimal.valueOf(product.weightGram).setScale(3, java.math.RoundingMode.HALF_UP), 0, java.math.RoundingMode.HALF_UP)
+                val customGramPriceBd = if (product.weightGram > BigDecimal.ZERO) {
+                    unitPriceBd.divide(product.weightGram.setScale(3, java.math.RoundingMode.HALF_UP), 0, java.math.RoundingMode.HALF_UP)
                 } else {
                     unitPriceBd
                 }
@@ -545,8 +546,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                         invoiceId = 0,
                         productId = draft.product.id,
                         quantity = draft.qty,
-                        unitPrice = unitPriceBd.toDouble(),
-                        total = draftTotalBd.toDouble(),
+                        unitPrice = unitPriceBd,
+                        total = draftTotalBd,
                         customWeight = draft.product.weightGram,
                         customName = draft.product.name
                     )
@@ -554,7 +555,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
                 // Subtotal = exact sum of item totals
                 val subtotalBd = itemsToSave.fold(java.math.BigDecimal.ZERO) { acc, item ->
-                    acc.add(java.math.BigDecimal.valueOf(item.total).setScale(0, java.math.RoundingMode.HALF_UP))
+                    acc.add(item.total.setScale(0, java.math.RoundingMode.HALF_UP))
                 }
 
                 val discBd = java.math.BigDecimal.valueOf(discVal).setScale(0, java.math.RoundingMode.HALF_UP)
@@ -564,26 +565,26 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
                 // Back-calculated tax using BigDecimal
                 val taxEst = invoiceCalculatorUseCase.calculateBackTax(
-                    totalAmount = finalPayableBd.toDouble(),
+                    totalAmount = finalPayableBd,
                     taxPercent = user.taxPercent
                 )
 
                 val saleInvoice = SaleInvoice(
                     customerId = cust.id,
-                    totalAmount = finalPayableBd.toDouble(),
-                    discount = discBd.toDouble(),
+                    totalAmount = finalPayableBd,
+                    discount = discBd,
                     tax = taxEst,
-                    paidAmount = if (draftPaymentType == "CASH") finalPayableBd.toDouble() else prepaymentBd.toDouble(),
+                    paidAmount = if (draftPaymentType == "CASH") finalPayableBd else prepaymentBd,
                     paymentType = draftPaymentType,
                     installmentsCount = instCountVal,
-                    prepayment = prepaymentBd.toDouble()
+                    prepayment = prepaymentBd
                 )
 
                 // Create installments with exact remainder distribution
                 val installmentsList = mutableListOf<Installment>()
                 if (draftPaymentType == "INSTALLMENT" && instCountVal > 0) {
                     val installmentAmounts = invoiceCalculatorUseCase.calculateInstallments(
-                        remainingAmount = remainingBalanceBd.toDouble(),
+                        remainingAmount = remainingBalanceBd,
                         installmentsCount = instCountVal
                     )
                     val calendar = Calendar.getInstance()
@@ -703,8 +704,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             stringBuilder.append("$productName (عیار 18) \n  ${item.quantity} عدد | فی: ${formatCurrency(item.unitPrice)} تومان\n")
         }
         stringBuilder.append("-------------------------------\n")
-        stringBuilder.append("مبلغ کل اقلام: ${formatCurrency(invoice.invoice.totalAmount + invoice.invoice.discount)} تومان\n")
-        if (invoice.invoice.discount > 0) {
+        stringBuilder.append("مبلغ کل اقلام: ${formatCurrency(invoice.invoice.totalAmount.add(invoice.invoice.discount))} تومان\n")
+        if (invoice.invoice.discount > BigDecimal.ZERO) {
             stringBuilder.append("تخفیف نقدی: ${formatCurrency(invoice.invoice.discount)} تومان\n")
         }
         stringBuilder.append("جمع نهایی پرداختی: ${formatCurrency(invoice.invoice.totalAmount)} تومان\n")
@@ -713,8 +714,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             stringBuilder.append("پیش پرداخت: ${formatCurrency(invoice.invoice.prepayment)} تومان\n")
             stringBuilder.append("تعداد اقساط: ${invoice.invoice.installmentsCount} ماهه\n")
             val monthlyPay = if (invoice.invoice.installmentsCount > 0) {
-                (invoice.invoice.totalAmount - invoice.invoice.prepayment) / invoice.invoice.installmentsCount
-            } else 0.0
+                invoice.invoice.totalAmount.subtract(invoice.invoice.prepayment).divide(BigDecimal.valueOf(invoice.invoice.installmentsCount.toLong()), 0, java.math.RoundingMode.HALF_UP)
+            } else BigDecimal.ZERO
             stringBuilder.append("مبلغ هر قسط: ${formatCurrency(monthlyPay)} تومان\n")
         }
         stringBuilder.append("\n===============================\n")
@@ -988,6 +989,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     }
 
     // --- CURRENCY & NUMBER STRING FORMATTERS (Persian localized) ---
+    fun formatCurrency(amount: BigDecimal): String = formatCurrency(amount.toDouble())
+
     fun formatCurrency(amount: Double): String {
         return try {
             val format = NumberFormat.getInstance(Locale("fa", "IR"))
@@ -996,6 +999,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
             String.format("%,.0f", amount)
         }
     }
+
+    fun formatWeight(weight: BigDecimal): String = formatWeight(weight.toDouble())
 
     fun formatWeight(weight: Double): String {
         return String.format("%.3f", weight)
