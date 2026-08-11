@@ -252,42 +252,32 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     var calcDiscount by mutableStateOf("0")
     var calcTaxRate by mutableStateOf("9")
 
-    // Derived values computed in real-time
-    val calcBaseGoldPrice: Double
+    // Derived values computed in real-time with standard precision via CalculateGoldPriceUseCase
+    val calcResult: com.example.domain.usecase.GoldCalculationResult
         get() {
             val w = calcWeight.toDoubleOrNull() ?: 0.0
             val p = calcGoldPriceToday.toDoubleOrNull() ?: 0.0
-            val karatCoeff = calcKarat.toDouble() / 18.0 // Normalized for 18k base pricing
-            return w * p * karatCoeff
-        }
-
-    val calcWagePrice: Double
-        get() {
-            val base = calcBaseGoldPrice
-            val w = calcWeight.toDoubleOrNull() ?: 0.0
             val wv = calcWageValue.toDoubleOrNull() ?: 0.0
-            return if (calcWageType == "PERCENT") {
-                base * (wv / 100.0)
-            } else {
-                wv * w
-            }
-        }
-
-    val calcDealerProfit: Double
-        get() = (calcBaseGoldPrice + calcWagePrice) * 0.07 // 7% Standard Jeweller Commission
-
-    val calcTaxAndDuty: Double
-        get() {
-            val totalBeforeTax = calcBaseGoldPrice + calcWagePrice + calcDealerProfit
             val taxRateVal = calcTaxRate.toDoubleOrNull() ?: 9.0
-            return totalBeforeTax * (taxRateVal / 100.0)
+            return calculateGoldPriceUseCase.execute(
+                weightGram = w,
+                karat = calcKarat,
+                wagePrice = wv,
+                wageType = calcWageType,
+                goldPricePerGram18k = p,
+                profitPercent = 7.0,
+                taxPercent = taxRateVal
+            )
         }
 
+    val calcBaseGoldPrice: Double get() = calcResult.baseGoldPrice
+    val calcWagePrice: Double get() = calcResult.wageAmount
+    val calcDealerProfit: Double get() = calcResult.profitAmount
+    val calcTaxAndDuty: Double get() = calcResult.taxAmount
     val calcFinalAmount: Double
         get() {
-            val totalBeforeDiscount = calcBaseGoldPrice + calcWagePrice + calcDealerProfit + calcTaxAndDuty
             val disc = calcDiscount.toDoubleOrNull() ?: 0.0
-            return (totalBeforeDiscount - disc).coerceAtLeast(0.0)
+            return (calcResult.totalPrice - disc).coerceAtLeast(0.0)
         }
 
     // --- CALCULATOR CONVERSION TO INVOICE CART ---

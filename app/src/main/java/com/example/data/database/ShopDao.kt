@@ -122,11 +122,23 @@ interface ShopDao {
     @Query("SELECT * FROM sale_items")
     suspend fun getAllSaleItemsSync(): List<SaleItem>
 
+    @Query("SELECT * FROM installments")
+    suspend fun getAllInstallmentsSync(): List<Installment>
+
     @Query("SELECT * FROM repairs")
     suspend fun getAllRepairsSync(): List<Repair>
 
     @Query("SELECT * FROM gold_price_history")
     suspend fun getGoldHistorySync(): List<GoldPriceHistory>
+
+    @Query("SELECT * FROM audit_logs")
+    suspend fun getAllLogsSync(): List<AuditLog>
+
+    @Query("DELETE FROM sale_items WHERE invoiceId = :invoiceId")
+    suspend fun deleteSaleItemsForInvoice(invoiceId: Int)
+
+    @Query("DELETE FROM installments WHERE invoiceId = :invoiceId")
+    suspend fun deleteInstallmentsForInvoice(invoiceId: Int)
 
     // --- RESET ---
     @Query("DELETE FROM customers")

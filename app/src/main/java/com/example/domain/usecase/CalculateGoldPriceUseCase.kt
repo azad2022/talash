@@ -1,6 +1,8 @@
 package com.example.domain.usecase
 
 import com.example.data.model.Product
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 data class GoldCalculationResult(
     val baseGoldPrice: Double,
@@ -13,12 +15,22 @@ data class GoldCalculationResult(
 
 class CalculateGoldPriceUseCase {
 
+    private fun roundMoney(value: Double): Double {
+        if (value.isNaN() || value.isInfinite()) return 0.0
+        return BigDecimal(value).setScale(0, RoundingMode.HALF_UP).toDouble()
+    }
+
+    private fun roundWeight(value: Double): Double {
+        if (value.isNaN() || value.isInfinite()) return 0.0
+        return BigDecimal(value).setScale(3, RoundingMode.HALF_UP).toDouble()
+    }
+
     /**
      * Calculates the item price using standard Iranian gold market formula:
      * 1. Base Gold Price = Weight * (18k Gold Price * (Karat / 18))
      * 2. Wage = if PERCENT then (Base Gold Price * wagePrice / 100) else (wagePrice * Weight)
-     * 3. Profit = (Base Gold Price + Wage) * (profitPercent / 100)  [Default standard retailer profit: 7%]
-     * 4. Tax = (Wage + Profit) * (taxPercent / 100) or (Price Before Tax * taxPercent / 100)
+     * 3. Profit = (Base Gold Price + Wage) * (profitPercent / 100)
+     * 4. Tax = (Wage + Profit) * (taxPercent / 100)
      * 5. Total = Price Before Tax + Tax
      */
     fun execute(
@@ -34,16 +46,27 @@ class CalculateGoldPriceUseCase {
             return GoldCalculationResult(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         }
 
-        val baseGoldPrice = weightGram * (goldPricePerGram18k * (karat.toDouble() / 18.0))
-        val wageAmount = if (wageType == "PERCENT") {
+        val cleanWeight = roundWeight(weightGram)
+        val karatCoeff = karat.toDouble() / 18.0
+
+        val rawBaseGoldPrice = cleanWeight * goldPricePerGram18k * karatCoeff
+        val baseGoldPrice = roundMoney(rawBaseGoldPrice)
+
+        val rawWageAmount = if (wageType == "PERCENT") {
             baseGoldPrice * (wagePrice / 100.0)
         } else {
-            wagePrice * weightGram
+            wagePrice * cleanWeight
         }
+        val wageAmount = roundMoney(rawWageAmount)
 
-        val profitAmount = (baseGoldPrice + wageAmount) * (profitPercent / 100.0)
+        val rawProfitAmount = (baseGoldPrice + wageAmount) * (profitPercent / 100.0)
+        val profitAmount = roundMoney(rawProfitAmount)
+
         val priceBeforeTax = baseGoldPrice + wageAmount + profitAmount
-        val taxAmount = (wageAmount + profitAmount) * (taxPercent / 100.0)
+
+        val rawTaxAmount = (wageAmount + profitAmount) * (taxPercent / 100.0)
+        val taxAmount = roundMoney(rawTaxAmount)
+
         val totalPrice = priceBeforeTax + taxAmount
 
         return GoldCalculationResult(

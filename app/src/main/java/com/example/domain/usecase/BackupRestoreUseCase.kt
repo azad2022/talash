@@ -7,12 +7,15 @@ import org.json.JSONObject
 data class BackupData(
     val version: Int = 1,
     val timestamp: Long = System.currentTimeMillis(),
-    val customers: List<Customer>,
-    val products: List<Product>,
-    val invoices: List<SaleInvoice>,
-    val saleItems: List<SaleItem>,
-    val repairs: List<Repair>,
-    val goldPriceHistory: List<GoldPriceHistory>
+    val customers: List<Customer> = emptyList(),
+    val products: List<Product> = emptyList(),
+    val invoices: List<SaleInvoice> = emptyList(),
+    val saleItems: List<SaleItem> = emptyList(),
+    val installments: List<Installment> = emptyList(),
+    val repairs: List<Repair> = emptyList(),
+    val goldPriceHistory: List<GoldPriceHistory> = emptyList(),
+    val auditLogs: List<AuditLog> = emptyList(),
+    val userConfig: User? = null
 )
 
 class BackupRestoreUseCase {
@@ -21,6 +24,18 @@ class BackupRestoreUseCase {
         val root = JSONObject().apply {
             put("version", data.version)
             put("timestamp", data.timestamp)
+
+            // User Config
+            data.userConfig?.let { u ->
+                put("userConfig", JSONObject().apply {
+                    put("id", u.id)
+                    put("dailyGoldPrice", u.dailyGoldPrice)
+                    put("taxPercent", u.taxPercent)
+                    put("minStockAlert", u.minStockAlert)
+                    put("pinHash", u.pinHash)
+                    put("fingerprintEnabled", u.fingerprintEnabled)
+                })
+            }
 
             // Customers
             val customersArray = JSONArray()
@@ -93,6 +108,20 @@ class BackupRestoreUseCase {
             }
             put("saleItems", saleItemsArray)
 
+            // Installments
+            val installmentsArray = JSONArray()
+            data.installments.forEach { inst ->
+                installmentsArray.put(JSONObject().apply {
+                    put("id", inst.id)
+                    put("invoiceId", inst.invoiceId)
+                    put("dueDate", inst.dueDate)
+                    put("amount", inst.amount)
+                    put("paid", inst.paid)
+                    put("paymentDate", inst.paymentDate ?: JSONObject.NULL)
+                })
+            }
+            put("installments", installmentsArray)
+
             // Repairs
             val repairsArray = JSONArray()
             data.repairs.forEach { rep ->
@@ -118,6 +147,19 @@ class BackupRestoreUseCase {
                 })
             }
             put("goldPriceHistory", goldHistoryArray)
+
+            // Audit Logs
+            val auditLogsArray = JSONArray()
+            data.auditLogs.forEach { log ->
+                auditLogsArray.put(JSONObject().apply {
+                    put("id", log.id)
+                    put("userId", log.userId)
+                    put("action", log.action)
+                    put("timestamp", log.timestamp)
+                    put("details", log.details)
+                })
+            }
+            put("auditLogs", auditLogsArray)
         }
 
         return root.toString(2)
@@ -125,9 +167,32 @@ class BackupRestoreUseCase {
 
     fun parseFromJson(jsonString: String): Result<BackupData> {
         return try {
+            if (jsonString.isBlank()) {
+                return Result.failure(IllegalArgumentException("فایل پشتیبان خالی است."))
+            }
+
             val root = JSONObject(jsonString)
+            
+            // Check essential keys to validate backup schema
+            val hasEntities = root.has("customers") || root.has("products") || root.has("invoices")
+            if (!hasEntities) {
+                return Result.failure(IllegalArgumentException("فرمت ساختار فایل پشتیبان نامعتبر است."))
+            }
+
             val version = root.optInt("version", 1)
             val timestamp = root.optLong("timestamp", System.currentTimeMillis())
+
+            val userConfigObj = root.optJSONObject("userConfig")
+            val userConfig = userConfigObj?.let { obj ->
+                User(
+                    id = obj.optInt("id", 1),
+                    dailyGoldPrice = obj.optDouble("dailyGoldPrice", 0.0),
+                    taxPercent = obj.optDouble("taxPercent", 9.0),
+                    minStockAlert = obj.optInt("minStockAlert", 2),
+                    pinHash = obj.optString("pinHash", ""),
+                    fingerprintEnabled = obj.optBoolean("fingerprintEnabled", false)
+                )
+            }
 
             val customersList = mutableListOf<Customer>()
             root.optJSONArray("customers")?.let { array ->
@@ -212,6 +277,23 @@ class BackupRestoreUseCase {
                 }
             }
 
+            val installmentsList = mutableListOf<Installment>()
+            root.optJSONArray("installments")?.let { array ->
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    installmentsList.add(
+                        Installment(
+                            id = obj.optInt("id", 0),
+                            invoiceId = obj.optInt("invoiceId", 0),
+                            dueDate = obj.optLong("dueDate", System.currentTimeMillis()),
+                            amount = obj.optDouble("amount", 0.0),
+                            paid = obj.optBoolean("paid", false),
+                            paymentDate = if (obj.isNull("paymentDate")) null else obj.optLong("paymentDate")
+                        )
+                    )
+                }
+            }
+
             val repairsList = mutableListOf<Repair>()
             root.optJSONArray("repairs")?.let { array ->
                 for (i in 0 until array.length()) {
@@ -244,6 +326,22 @@ class BackupRestoreUseCase {
                 }
             }
 
+            val auditLogsList = mutableListOf<AuditLog>()
+            root.optJSONArray("auditLogs")?.let { array ->
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    auditLogsList.add(
+                        AuditLog(
+                            id = obj.optInt("id", 0),
+                            userId = obj.optInt("userId", 1),
+                            action = obj.optString("action", "UNKNOWN"),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            details = obj.optString("details", "")
+                        )
+                    )
+                }
+            }
+
             Result.success(
                 BackupData(
                     version = version,
@@ -252,8 +350,11 @@ class BackupRestoreUseCase {
                     products = productsList,
                     invoices = invoicesList,
                     saleItems = saleItemsList,
+                    installments = installmentsList,
                     repairs = repairsList,
-                    goldPriceHistory = goldHistoryList
+                    goldPriceHistory = goldHistoryList,
+                    auditLogs = auditLogsList,
+                    userConfig = userConfig
                 )
             )
         } catch (e: Exception) {

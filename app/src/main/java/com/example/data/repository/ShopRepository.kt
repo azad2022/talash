@@ -1,11 +1,17 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
 import com.example.data.database.ShopDao
+import com.example.data.database.AppDatabase
 import com.example.data.model.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 
-class ShopRepository(private val shopDao: ShopDao, private val context: android.content.Context) {
+class ShopRepository(
+    private val shopDao: ShopDao,
+    private val context: android.content.Context,
+    private val appDatabase: AppDatabase = AppDatabase.getInstance(context)
+) {
 
     private val prefs = context.getSharedPreferences("gold_settings", android.content.Context.MODE_PRIVATE)
 
@@ -240,44 +246,45 @@ class ShopRepository(private val shopDao: ShopDao, private val context: android.
         items: List<SaleItem>,
         installments: List<Installment>
     ): Long {
-        // Save central invoice
-        val invoiceId = shopDao.insertInvoice(invoice).toInt()
-        
-        // Save all sub-items and deduct stock
-        items.forEach { item ->
-            val finalItem = item.copy(invoiceId = invoiceId)
-            shopDao.insertSaleItem(finalItem)
+        return appDatabase.withTransaction {
+            val invoiceId = shopDao.insertInvoice(invoice).toInt()
             
-            // Deduct stock of corresponding product
-            val prod = shopDao.getProductById(item.productId)
-            if (prod != null) {
-                val newStock = (prod.stock - item.quantity).coerceAtLeast(0)
-                shopDao.updateProductStock(prod.id, newStock)
+            items.forEach { item ->
+                val finalItem = item.copy(invoiceId = invoiceId)
+                shopDao.insertSaleItem(finalItem)
+                
+                val prod = shopDao.getProductById(item.productId)
+                if (prod != null) {
+                    val newStock = (prod.stock - item.quantity).coerceAtLeast(0)
+                    shopDao.updateProductStock(prod.id, newStock)
+                }
             }
-        }
 
-        // Save installments if it is an installment payment
-        if (invoice.paymentType == "INSTALLMENT") {
-            installments.forEach { installment ->
-                val finalInstallment = installment.copy(invoiceId = invoiceId)
-                shopDao.insertInstallment(finalInstallment)
+            if (invoice.paymentType == "INSTALLMENT") {
+                installments.forEach { installment ->
+                    val finalInstallment = installment.copy(invoiceId = invoiceId)
+                    shopDao.insertInstallment(finalInstallment)
+                }
             }
-        }
 
-        logAction("CREATE_INVOICE", "صدور فاکتور شماره $invoiceId به مبلغ ${invoice.totalAmount} تومان")
-        return invoiceId.toLong()
+            logAction("CREATE_INVOICE", "صدور فاکتور شماره $invoiceId به مبلغ ${invoice.totalAmount} تومان")
+            invoiceId.toLong()
+        }
     }
 
     suspend fun deleteInvoice(invoice: SaleInvoice) {
-        // Find existing items to restore stock before deleting invoicing
-        shopDao.getItemsForInvoice(invoice.id).firstOrNull()?.forEach { item ->
-            val prod = shopDao.getProductById(item.productId)
-            if (prod != null) {
-                shopDao.updateProductStock(prod.id, prod.stock + item.quantity)
+        appDatabase.withTransaction {
+            shopDao.getItemsForInvoice(invoice.id).firstOrNull()?.forEach { item ->
+                val prod = shopDao.getProductById(item.productId)
+                if (prod != null) {
+                    shopDao.updateProductStock(prod.id, prod.stock + item.quantity)
+                }
             }
+            shopDao.deleteSaleItemsForInvoice(invoice.id)
+            shopDao.deleteInstallmentsForInvoice(invoice.id)
+            shopDao.deleteInvoice(invoice)
+            logAction("DELETE_INVOICE", "حذف فاکتور شماره ${invoice.id} و بازگردانی اقلام به انبار")
         }
-        shopDao.deleteInvoice(invoice)
-        logAction("DELETE_INVOICE", "حذف فاکتور شماره ${invoice.id} و بازگردانی اقلام به انبار")
     }
 
     // --- INSTALLMENTS ---
@@ -327,20 +334,26 @@ class ShopRepository(private val shopDao: ShopDao, private val context: android.
             val productsList = shopDao.getAllProductsSync()
             val invoicesList = shopDao.getAllInvoicesSync()
             val itemsList = shopDao.getAllSaleItemsSync()
+            val installmentsList = shopDao.getAllInstallmentsSync()
             val repairsList = shopDao.getAllRepairsSync()
             val goldHistory = shopDao.getGoldHistorySync()
+            val logsList = shopDao.getAllLogsSync()
+            val currentUser = shopDao.getUserSync()
 
             val backupData = com.example.domain.usecase.BackupData(
                 customers = customersList,
                 products = productsList,
                 invoices = invoicesList,
                 saleItems = itemsList,
+                installments = installmentsList,
                 repairs = repairsList,
-                goldPriceHistory = goldHistory
+                goldPriceHistory = goldHistory,
+                auditLogs = logsList,
+                userConfig = currentUser
             )
 
             val json = backupRestoreUseCase.exportToJson(backupData)
-            logAction("BACKUP_EXPORT", "پشتیبان‌گیری از داده‌ها به فرمت JSON انجام شد")
+            logAction("BACKUP_EXPORT", "پشتیبان‌گیری کامل از داده‌ها به فرمت JSON انجام شد")
             json
         }
     }
@@ -354,16 +367,38 @@ class ShopRepository(private val shopDao: ShopDao, private val context: android.
 
             val backupData = parseResult.getOrThrow()
 
-            // Restore elements safely
-            backupData.customers.forEach { shopDao.insertCustomer(it) }
-            backupData.products.forEach { shopDao.insertProduct(it) }
-            backupData.invoices.forEach { shopDao.insertInvoice(it) }
-            backupData.saleItems.forEach { shopDao.insertSaleItem(it) }
-            backupData.repairs.forEach { shopDao.insertRepair(it) }
-            backupData.goldPriceHistory.forEach { shopDao.insertGoldPriceHistory(it) }
+            try {
+                appDatabase.withTransaction {
+                    shopDao.clearSaleItems()
+                    shopDao.clearInstallments()
+                    shopDao.clearInvoices()
+                    shopDao.clearRepairs()
+                    shopDao.clearProducts()
+                    shopDao.clearCustomers()
+                    shopDao.clearGoldHistory()
+                    shopDao.clearLogs()
 
-            logAction("BACKUP_RESTORE", "بازیابی داده‌ها از فایل پشتیبان با موفقیت انجام شد")
-            Result.success(Unit)
+                    backupData.customers.forEach { shopDao.insertCustomer(it) }
+                    backupData.products.forEach { shopDao.insertProduct(it) }
+                    backupData.invoices.forEach { shopDao.insertInvoice(it) }
+                    backupData.saleItems.forEach { shopDao.insertSaleItem(it) }
+                    backupData.installments.forEach { shopDao.insertInstallment(it) }
+                    backupData.repairs.forEach { shopDao.insertRepair(it) }
+                    backupData.goldPriceHistory.forEach { shopDao.insertGoldPriceHistory(it) }
+                    backupData.auditLogs.forEach { shopDao.insertLog(it) }
+                    backupData.userConfig?.let { shopDao.insertUser(it) }
+
+                    shopDao.insertLog(
+                        AuditLog(
+                            action = "BACKUP_RESTORE",
+                            details = "بازیابی کامل داده‌ها از فایل پشتیبان نسخه ${backupData.version} انجام شد"
+                        )
+                    )
+                }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
         }
     }
 

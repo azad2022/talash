@@ -80,6 +80,30 @@ class CalculateGoldPriceUseCaseTest {
     }
 
     @Test
+    fun execute_precisionRounding_preventsFloatingPointDrift() {
+        // Testing fractional weight with floating point drift risk
+        val weightGram = 3.3333333
+        val goldPricePerGram18k = 3_456_789.0
+
+        val result = useCase.execute(
+            weightGram = weightGram,
+            karat = 18,
+            wagePrice = 120_000.0,
+            wageType = "FIXED",
+            goldPricePerGram18k = goldPricePerGram18k,
+            profitPercent = 7.0,
+            taxPercent = 9.0
+        )
+
+        // Ensure output amounts are clean integers (rounded Tomans) without fractional drift
+        assertEquals(result.baseGoldPrice, Math.floor(result.baseGoldPrice), 0.0001)
+        assertEquals(result.wageAmount, Math.floor(result.wageAmount), 0.0001)
+        assertEquals(result.profitAmount, Math.floor(result.profitAmount), 0.0001)
+        assertEquals(result.taxAmount, Math.floor(result.taxAmount), 0.0001)
+        assertEquals(result.totalPrice, Math.floor(result.totalPrice), 0.0001)
+    }
+
+    @Test
     fun execute_zeroOrNegativeWeight_returnsZero() {
         val result = useCase.execute(
             weightGram = 0.0,
