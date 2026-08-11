@@ -476,20 +476,29 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 rateCurrencyGbp = rateCurrencyGbp,
                 taxRate = user.taxPercent
             )
+            val unitPriceBd = java.math.BigDecimal.valueOf(estimatedPrice).setScale(0, java.math.RoundingMode.HALF_UP)
             val index = draftItems.indexOfFirst { it.product.id == product.id }
             if (index >= 0) {
                 val current = draftItems[index]
+                val newQty = current.qty + quantity
+                val newTotalBd = unitPriceBd.multiply(java.math.BigDecimal.valueOf(newQty.toLong())).setScale(0, java.math.RoundingMode.HALF_UP)
                 draftItems[index] = current.copy(
-                    qty = current.qty + quantity,
-                    exactSalePrice = (current.qty + quantity) * estimatedPrice
+                    qty = newQty,
+                    exactSalePrice = newTotalBd.toDouble()
                 )
             } else {
+                val totalBd = unitPriceBd.multiply(java.math.BigDecimal.valueOf(quantity.toLong())).setScale(0, java.math.RoundingMode.HALF_UP)
+                val customGramPriceBd = if (product.weightGram > 0.0) {
+                    unitPriceBd.divide(java.math.BigDecimal.valueOf(product.weightGram).setScale(3, java.math.RoundingMode.HALF_UP), 0, java.math.RoundingMode.HALF_UP)
+                } else {
+                    unitPriceBd
+                }
                 draftItems.add(
                     InvoiceItemDraft(
                         product = product,
                         qty = quantity,
-                        customGramPrice = if (product.weightGram > 0.0) estimatedPrice / product.weightGram else estimatedPrice,
-                        exactSalePrice = estimatedPrice * quantity
+                        customGramPrice = customGramPriceBd.toDouble(),
+                        exactSalePrice = totalBd.toDouble()
                     )
                 )
             }
@@ -498,14 +507,18 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
     val draftCartTotalAmount: Double
         get() {
-            return draftItems.sumOf { it.exactSalePrice }
+            val totalBd = draftItems.fold(java.math.BigDecimal.ZERO) { acc, item ->
+                acc.add(java.math.BigDecimal.valueOf(item.exactSalePrice).setScale(0, java.math.RoundingMode.HALF_UP))
+            }
+            return totalBd.toDouble()
         }
 
     val draftFinalPriceAfterDiscount: Double
         get() {
-            val total = draftCartTotalAmount
-            val disc = draftDiscountInput.toDoubleOrNull() ?: 0.0
-            return (total - disc).coerceAtLeast(0.0)
+            val subtotalBd = java.math.BigDecimal.valueOf(draftCartTotalAmount).setScale(0, java.math.RoundingMode.HALF_UP)
+            val discVal = draftDiscountInput.toDoubleOrNull() ?: 0.0
+            val discBd = java.math.BigDecimal.valueOf(discVal).setScale(0, java.math.RoundingMode.HALF_UP)
+            return subtotalBd.subtract(discBd).max(java.math.BigDecimal.ZERO).toDouble()
         }
 
     fun submitCurrentDraftInvoice(
@@ -515,7 +528,6 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         val cust = draftCustomer ?: return false
         if (draftItems.isEmpty()) return false
 
-        val totalAmt = draftFinalPriceAfterDiscount
         val discVal = draftDiscountInput.toDoubleOrNull() ?: 0.0
         val prepaymentVal = draftPrepaymentInput.toDoubleOrNull() ?: 0.0
         val instCountVal = draftInstallmentsCountInput.toIntOrNull() ?: 0
@@ -523,43 +535,63 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         viewModelScope.launch {
             try {
                 val user = repository.getOrInitializeUser()
-                val taxEst = totalAmt * (user.taxPercent / (100.0 + user.taxPercent)) // back-calculated tax
-                
-                val saleInvoice = SaleInvoice(
-                    customerId = cust.id,
-                    totalAmount = totalAmt,
-                    discount = discVal,
-                    tax = taxEst,
-                    paidAmount = if (draftPaymentType == "CASH") totalAmt else prepaymentVal,
-                    paymentType = draftPaymentType,
-                    installmentsCount = instCountVal,
-                    prepayment = prepaymentVal
-                )
 
-                // Convert drafts to SaleItem
+                // Convert drafts to SaleItem deterministically
                 val itemsToSave = draftItems.map { draft ->
+                    val draftTotalBd = java.math.BigDecimal.valueOf(draft.exactSalePrice).setScale(0, java.math.RoundingMode.HALF_UP)
+                    val qtyBd = java.math.BigDecimal.valueOf(draft.qty.toLong())
+                    val unitPriceBd = draftTotalBd.divide(qtyBd, 0, java.math.RoundingMode.HALF_UP)
                     SaleItem(
                         invoiceId = 0,
                         productId = draft.product.id,
                         quantity = draft.qty,
-                        unitPrice = draft.exactSalePrice / draft.qty,
-                        total = draft.exactSalePrice
+                        unitPrice = unitPriceBd.toDouble(),
+                        total = draftTotalBd.toDouble()
                     )
                 }
 
-                // Create installments list
+                // Subtotal = exact sum of item totals
+                val subtotalBd = itemsToSave.fold(java.math.BigDecimal.ZERO) { acc, item ->
+                    acc.add(java.math.BigDecimal.valueOf(item.total).setScale(0, java.math.RoundingMode.HALF_UP))
+                }
+
+                val discBd = java.math.BigDecimal.valueOf(discVal).setScale(0, java.math.RoundingMode.HALF_UP)
+                val finalPayableBd = subtotalBd.subtract(discBd).max(java.math.BigDecimal.ZERO)
+                val prepaymentBd = java.math.BigDecimal.valueOf(prepaymentVal).setScale(0, java.math.RoundingMode.HALF_UP)
+                val remainingBalanceBd = finalPayableBd.subtract(prepaymentBd).max(java.math.BigDecimal.ZERO)
+
+                // Back-calculated tax using BigDecimal
+                val taxEst = invoiceCalculatorUseCase.calculateBackTax(
+                    totalAmount = finalPayableBd.toDouble(),
+                    taxPercent = user.taxPercent
+                )
+
+                val saleInvoice = SaleInvoice(
+                    customerId = cust.id,
+                    totalAmount = finalPayableBd.toDouble(),
+                    discount = discBd.toDouble(),
+                    tax = taxEst,
+                    paidAmount = if (draftPaymentType == "CASH") finalPayableBd.toDouble() else prepaymentBd.toDouble(),
+                    paymentType = draftPaymentType,
+                    installmentsCount = instCountVal,
+                    prepayment = prepaymentBd.toDouble()
+                )
+
+                // Create installments with exact remainder distribution
                 val installmentsList = mutableListOf<Installment>()
                 if (draftPaymentType == "INSTALLMENT" && instCountVal > 0) {
-                    val remAmount = (totalAmt - prepaymentVal).coerceAtLeast(0.0)
-                    val perMonthAmount = remAmount / instCountVal
+                    val installmentAmounts = invoiceCalculatorUseCase.calculateInstallments(
+                        remainingAmount = remainingBalanceBd.toDouble(),
+                        installmentsCount = instCountVal
+                    )
                     val calendar = Calendar.getInstance()
-                    for (i in 1..instCountVal) {
+                    for (amount in installmentAmounts) {
                         calendar.add(Calendar.MONTH, 1)
                         installmentsList.add(
                             Installment(
                                 invoiceId = 0,
                                 dueDate = calendar.timeInMillis,
-                                amount = perMonthAmount,
+                                amount = amount,
                                 paid = false
                             )
                         )

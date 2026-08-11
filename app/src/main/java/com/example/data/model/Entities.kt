@@ -52,15 +52,15 @@ data class Product(
 ) {
     // Convenience helper to estimate potential selling price based on basic gold price
     fun estimatePrice(goldPricePerGram18k: Double, taxRate: Double): Double {
-        val baseGoldPrice = weightGram * (goldPricePerGram18k * (karat.toDouble() / 18.0))
-        val wage = if (wageType == "PERCENT") {
-            baseGoldPrice * (wagePrice / 100.0)
-        } else {
-            wagePrice * weightGram
-        }
-        val dealerProfitRate = 0.07 // Standard 7% profit for gold retailers
-        val beforeTax = (baseGoldPrice + wage) * (1 + dealerProfitRate)
-        return beforeTax * (1 + (taxRate / 100.0))
+        return com.example.domain.usecase.CalculateGoldPriceUseCase().execute(
+            weightGram = weightGram,
+            karat = karat,
+            wagePrice = wagePrice,
+            wageType = wageType,
+            goldPricePerGram18k = goldPricePerGram18k,
+            profitPercent = 7.0,
+            taxPercent = taxRate
+        ).totalPrice
     }
 
     fun calculateAssetValue(
