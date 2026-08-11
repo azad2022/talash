@@ -11,8 +11,7 @@ class Converters {
 
     @TypeConverter
     fun toBigDecimal(value: String?): BigDecimal? {
-        return value?.let {
-            if (it.isBlank()) BigDecimal.ZERO else try { BigDecimal(it) } catch (e: Exception) { BigDecimal.ZERO }
-        }
+        if (value == null || value.isBlank()) return null
+        return BigDecimal(value)
     }
 }
