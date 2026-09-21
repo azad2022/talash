@@ -515,7 +515,7 @@ fun SplashScreen(
                 Text(
                     text = "سامانه مدیریت و حسابداری طلافروشان",
                     fontSize = 20.sp,
-                    fontFamily = com.example.ui.theme.PersianZibaFont,
+                    fontFamily = com.example.ui.theme.VazirmatnFontFamily,
                     fontWeight = FontWeight.Bold,
                     color = MetallicGold,
                     textAlign = TextAlign.Center
@@ -540,7 +540,7 @@ fun SplashScreen(
                         Text(
                             text = "تلاش کن طلاش میکنی",
                             fontSize = 13.sp,
-                            fontFamily = com.example.ui.theme.PersianZibaFont,
+                            fontFamily = com.example.ui.theme.VazirmatnFontFamily,
                             fontWeight = FontWeight.Bold,
                             color = if (ThemeConfig.isLightMode) DarkMetallicGold else LightMetallicGold
                         )

@@ -432,7 +432,7 @@ fun DashboardScreen(
                         Text(
                             text = "زرمدیر طلاش",
                             fontSize = 24.sp,
-                            fontFamily = com.example.ui.theme.PersianZibaFont,
+                            fontFamily = com.example.ui.theme.VazirmatnFontFamily,
                             style = androidx.compose.ui.text.TextStyle(brush = goldenShimmerBrush),
                             fontWeight = FontWeight.Bold
                         )
@@ -460,7 +460,7 @@ fun DashboardScreen(
                             Text(
                                 text = if (dailyPrice <= 0.0) "طلا ۱۸ عیار: تنظیم نشده" else "طلا ۱۸ عیار: ${viewModel.formatCurrency(dailyPrice)} تومان",
                                 fontSize = 16.sp,
-                                fontFamily = com.example.ui.theme.PersianZibaFont,
+                                fontFamily = com.example.ui.theme.VazirmatnFontFamily,
                                 color = if (ThemeConfig.isLightMode) DarkMetallicGold else LightMetallicGold,
                                 fontWeight = FontWeight.Bold
                             )
@@ -3648,28 +3648,28 @@ fun ReportsScreen(
                                     .padding(10.dp)
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily)
                                     Text(shopNameInput, color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                                     Text(titleInput, color = Color.Black, fontSize = 9.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily)
                                     
                                     Column(horizontalAlignment = Alignment.Start, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                                        Text("شماره فاکتور: ۴۵", color = Color.Black, fontSize = 9.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                        Text("تاریخ صدور: ۱۴۰۵/۰۴/۰۵ ۱۲:۳۰", color = Color.Black, fontSize = 9.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                        Text("نام مشتری: مریم عابدی", color = Color.Black, fontSize = 9.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                        Text("-------------------------------", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth())
-                                        Text("شرح کالا / عیار / وزن / فی کل", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                        Text("-------------------------------", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth())
+                                        Text("شماره فاکتور: ۴۵", color = Color.Black, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
+                                        Text("تاریخ صدور: ۱۴۰۵/۰۴/۰۵ ۱۲:۳۰", color = Color.Black, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
+                                        Text("نام مشتری: مریم عابدی", color = Color.Black, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
+                                        Text("-------------------------------", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, modifier = Modifier.fillMaxWidth())
+                                        Text("شرح کالا / عیار / وزن / فی کل", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
+                                        Text("-------------------------------", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, modifier = Modifier.fillMaxWidth())
                                         Text("دستبند طلا ۱۸ عیار لوکس", color = Color.Black, fontSize = 9.sp, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                        Text("  ۱ عدد | فی: ۱۲,۵۰۰,۰۰۰ تومان", color = Color.Black, fontSize = 8.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                        Text("-------------------------------", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth())
+                                        Text("  ۱ عدد | فی: ۱۲,۵۰۰,۰۰۰ تومان", color = Color.Black, fontSize = 8.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
+                                        Text("-------------------------------", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily, modifier = Modifier.fillMaxWidth())
                                         Text("جمع نهایی: ۱۲,۵۰۰,۰۰۰ تومان", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
                                     }
                                     
-                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily)
                                     Text(footerInput, color = Color.Black, fontSize = 9.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                                     Text(addressInput, color = Color.Black, fontSize = 8.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                    Text("===============================", color = Color.DarkGray, fontSize = 9.sp, fontFamily = com.example.ui.theme.VazirmatnFontFamily)
                                 }
                             }
 
@@ -4280,7 +4280,7 @@ fun PrinterReceiptSimulatorDialog(
                         value = editedPayload,
                         onValueChange = { editedPayload = it },
                         textStyle = androidx.compose.ui.text.TextStyle(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontFamily = com.example.ui.theme.VazirmatnFontFamily,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
                             color = Color.Black,
@@ -4674,7 +4674,7 @@ fun PluginStoreScreen(viewModel: com.example.ui.viewmodel.ShopViewModel) {
                     color = MetallicGold,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
-                    fontFamily = com.example.ui.theme.PersianZibaFont
+                    fontFamily = com.example.ui.theme.VazirmatnFontFamily
                 )
 
                 Text(
@@ -4729,7 +4729,7 @@ fun PluginStoreScreen(viewModel: com.example.ui.viewmodel.ShopViewModel) {
                                     text = "azadazerakhsh@gmail.com",
                                     color = TextWhite,
                                     fontSize = 10.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                    fontFamily = com.example.ui.theme.VazirmatnFontFamily
                                 )
                             }
                             IconButton(
@@ -4764,7 +4764,7 @@ fun PluginStoreScreen(viewModel: com.example.ui.viewmodel.ShopViewModel) {
                                     text = "09109310711",
                                     color = TextWhite,
                                     fontSize = 10.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                    fontFamily = com.example.ui.theme.VazirmatnFontFamily
                                 )
                             }
                             IconButton(
