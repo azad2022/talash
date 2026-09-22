@@ -22,7 +22,7 @@ import com.example.data.model.*
         StockTakeSession::class,
         StockTakeItem::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -264,6 +264,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : androidx.room.migration.Migration(10, 11) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Add isCounted column to stock_take_items
+                db.execSQL("ALTER TABLE `stock_take_items` ADD COLUMN `isCounted` INTEGER NOT NULL DEFAULT 0")
+                // Historical counted items with positive stock are marked as isCounted = 1
+                db.execSQL("UPDATE `stock_take_items` SET `isCounted` = 1 WHERE `countedStock` > 0")
+
+                // 2. Add reopenReason and reopenedAt columns to daily_closings
+                db.execSQL("ALTER TABLE `daily_closings` ADD COLUMN `reopenReason` TEXT")
+                db.execSQL("ALTER TABLE `daily_closings` ADD COLUMN `reopenedAt` INTEGER")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -271,7 +284,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "gildar_gold_shop.db"
                 )
-                .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .fallbackToDestructiveMigration()
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()

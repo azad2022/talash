@@ -194,6 +194,8 @@ class BackupRestoreUseCase {
                     put("optionalNotes", dc.optionalNotes ?: JSONObject.NULL)
                     put("status", dc.status)
                     put("revision", dc.revision)
+                    put("reopenReason", dc.reopenReason ?: JSONObject.NULL)
+                    put("reopenedAt", dc.reopenedAt ?: JSONObject.NULL)
                 })
             }
             put("dailyClosings", dailyClosingsArray)
@@ -225,6 +227,7 @@ class BackupRestoreUseCase {
                     put("productBarcode", sti.productBarcode)
                     put("expectedStockAtStart", sti.expectedStockAtStart)
                     put("countedStock", sti.countedStock)
+                    put("isCounted", sti.isCounted)
                     put("systemStockAtFinalize", sti.systemStockAtFinalize ?: JSONObject.NULL)
                     put("difference", sti.difference)
                     put("changedDuringSession", sti.changedDuringSession)
@@ -517,7 +520,9 @@ class BackupRestoreUseCase {
                             optionalPhysicalGoldWeight = if (obj.isNull("optionalPhysicalGoldWeight")) null else obj.optBigDecimal("optionalPhysicalGoldWeight"),
                             optionalNotes = if (obj.isNull("optionalNotes")) null else obj.optString("optionalNotes"),
                             status = obj.optString("status", "CLOSED"),
-                            revision = obj.optInt("revision", 1)
+                            revision = obj.optInt("revision", 1),
+                            reopenReason = if (obj.isNull("reopenReason")) null else obj.optString("reopenReason"),
+                            reopenedAt = if (obj.isNull("reopenedAt")) null else obj.optLong("reopenedAt")
                         )
                     )
                 }
@@ -555,6 +560,7 @@ class BackupRestoreUseCase {
                             productBarcode = obj.optString("productBarcode", ""),
                             expectedStockAtStart = obj.optInt("expectedStockAtStart", 0),
                             countedStock = obj.optInt("countedStock", 0),
+                            isCounted = obj.optBoolean("isCounted", obj.optInt("countedStock", 0) > 0),
                             systemStockAtFinalize = if (obj.isNull("systemStockAtFinalize")) null else obj.optInt("systemStockAtFinalize"),
                             difference = obj.optInt("difference", 0),
                             changedDuringSession = obj.optBoolean("changedDuringSession", false),

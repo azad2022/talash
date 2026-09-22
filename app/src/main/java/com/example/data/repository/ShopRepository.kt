@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.example.data.database.ShopDao
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
+import com.example.domain.util.BarcodeResolver
 import com.example.ui.util.JalaliCalendar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -244,9 +245,29 @@ class ShopRepository(
     val products: Flow<List<Product>> = shopDao.getAllProducts()
 
     suspend fun insertProduct(product: Product): Long {
+        if (product.id != 0) {
+            val existing = shopDao.getProductById(product.id)
+            if (existing != null && existing.stock != product.stock) {
+                val nowTs = System.currentTimeMillis()
+                if (isBusinessDateClosed(nowTs)) {
+                    val dateKey = BusinessDayUtils.getBusinessDateKey(nowTs)
+                    throw IllegalStateException("روز کاری جاری ($dateKey) بسته شده است و امکان تعدیل دستی موجودی کالا وجود ندارد. ابتدا باید روز را بازگشایی کنید.")
+                }
+            }
+        }
         val id = shopDao.insertProduct(product)
         val action = if (product.id == 0) "افزودن کالا به انبار: " else "بروزرسانی مشخصات کالا: "
         logAction(if (product.id == 0) "ADD_PRODUCT" else "EDIT_PRODUCT", "$action ${product.name} (${product.weightGram} گرم)")
+
+        // Concurrency guard: If a stock take session is active, flag it as REVIEW_REQUIRED
+        val activeSession = shopDao.getActiveStockTakeSessionSync()
+        if (activeSession != null && activeSession.status == "IN_PROGRESS") {
+            shopDao.updateStockTakeSession(activeSession.copy(status = "REVIEW_REQUIRED"))
+            logAction(
+                "STOCK_TAKE_SESSION_FLAGGED_REVIEW",
+                "کالای «${product.name}» حین نشست انبارگردانی #${activeSession.id} ثبت یا ویرایش شد. وضعیت نشست به REVIEW_REQUIRED تغییر یافت."
+            )
+        }
         return id
     }
 
@@ -278,6 +299,12 @@ class ShopRepository(
     ): Long {
         if (items.isEmpty()) {
             throw IllegalArgumentException("فاکتور باید حداقل شامل یک کالا باشد.")
+        }
+
+        // Business-Day Lock check
+        if (isBusinessDateClosed(invoice.date)) {
+            val dateKey = BusinessDayUtils.getBusinessDateKey(invoice.date)
+            throw IllegalStateException("روز کاری این فاکتور ($dateKey) بسته شده است و امکان ثبت فاکتور جدید وجود ندارد. برای انجام عملیات، ابتدا روز را بازگشایی کنید.")
         }
 
         return appDatabase.withTransaction {
@@ -323,6 +350,12 @@ class ShopRepository(
     }
 
     suspend fun deleteInvoice(invoice: SaleInvoice) {
+        // Business-Day Lock check
+        if (isBusinessDateClosed(invoice.date)) {
+            val dateKey = BusinessDayUtils.getBusinessDateKey(invoice.date)
+            throw IllegalStateException("روز کاری این فاکتور ($dateKey) بسته شده است و امکان ابطال آن وجود ندارد. برای انجام عملیات، ابتدا روز را بازگشایی کنید.")
+        }
+
         appDatabase.withTransaction {
             if (invoice.paymentType.startsWith("CANCELLED") || invoice.paymentType == "VOID") {
                 throw IllegalStateException("این فاکتور قبلاً ابطال شده است و امکان ابطال مجدد ندارد.")
@@ -345,8 +378,13 @@ class ShopRepository(
     val installments: Flow<List<Installment>> = shopDao.getAllInstallments()
 
     suspend fun payInstallment(installmentId: Int, paid: Boolean) {
-        val now = if (paid) System.currentTimeMillis() else null
-        shopDao.updateInstallmentPayment(installmentId, paid, now)
+        val now = System.currentTimeMillis()
+        if (isBusinessDateClosed(now)) {
+            val dateKey = BusinessDayUtils.getBusinessDateKey(now)
+            throw IllegalStateException("روز کاری جاری ($dateKey) بسته شده است و امکان دریافت یا تغییر وضعیت قسط وجود ندارد. ابتدا روز را بازگشایی نمایید.")
+        }
+        val paymentDate = if (paid) now else null
+        shopDao.updateInstallmentPayment(installmentId, paid, paymentDate)
         logAction("PAY_INSTALLMENT", "ثبت وضعیت پرداخت قسط کد $installmentId به مقدار: $paid")
     }
 
@@ -384,108 +422,118 @@ class ShopRepository(
 
     fun getDailyClosingById(id: Long): Flow<DailyClosing?> = shopDao.getDailyClosingById(id)
 
+    suspend fun isBusinessDateClosed(timestamp: Long): Boolean {
+        val dateKey = BusinessDayUtils.getBusinessDateKey(timestamp)
+        val latest = shopDao.getLatestDailyClosingForDateSync(dateKey)
+        return latest != null && latest.status == "CLOSED"
+    }
+
+    private suspend fun calculateLiveSummary(now: Long): TodaySummaryPreview {
+        val startOfDay = BusinessDayUtils.getStartOfDay(now)
+        val endOfDay = BusinessDayUtils.getEndOfDay(now)
+        val dateKey = BusinessDayUtils.getBusinessDateKey(now)
+        val displayedPersian = JalaliCalendar.getJalaliDate(now)
+        val displayedGregorian = BusinessDayUtils.getGregorianDateDisplay(now)
+
+        val existingClosing = shopDao.getLatestDailyClosingForDateSync(dateKey)
+
+        val allInvoices = shopDao.getAllInvoicesSync()
+        val todayInvoices = allInvoices.filter {
+            it.date in startOfDay..endOfDay && !it.paymentType.startsWith("CANCELLED")
+        }
+        val invoiceCount = todayInvoices.size
+        val salesTotal = todayInvoices.fold(BigDecimal.ZERO) { acc, inv -> acc.add(inv.totalAmount) }
+        val paidTotal = todayInvoices.fold(BigDecimal.ZERO) { acc, inv -> acc.add(inv.paidAmount) }
+
+        val todayInvoiceIds = todayInvoices.map { it.id }.toSet()
+        val allInstallments = shopDao.getAllInstallmentsSync()
+        val todayCreatedInstallments = allInstallments.filter { todayInvoiceIds.contains(it.invoiceId) }
+        val installmentCreatedTotal = todayCreatedInstallments.fold(BigDecimal.ZERO) { acc, inst -> acc.add(inst.amount) }
+        val installmentCreatedCount = todayCreatedInstallments.size
+
+        val todayCollectedInstallments = allInstallments.filter {
+            it.paid && it.paymentDate != null && it.paymentDate in startOfDay..endOfDay
+        }
+        val installmentCollectedTotal = todayCollectedInstallments.fold(BigDecimal.ZERO) { acc, inst -> acc.add(inst.amount) }
+
+        val overdueInstallmentCount = allInstallments.count { !it.paid && it.dueDate < now }
+
+        val allProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
+        val inventoryPieceCount = allProducts.sumOf { it.stock }
+        val inventoryWeight = allProducts.fold(BigDecimal.ZERO) { acc, p ->
+            acc.add(p.weightGram.multiply(BigDecimal.valueOf(p.stock.toLong())))
+        }
+
+        val userConfig = shopDao.getUserSync()
+        val dailyGoldPrice = userConfig?.dailyGoldPrice ?: BigDecimal.ZERO
+        val taxPercent = userConfig?.taxPercent ?: BigDecimal("9.0")
+
+        val r24k = BigDecimal.valueOf(getRate("rate_gold_24k", 0.0))
+        val rMelted = BigDecimal.valueOf(getRate("rate_gold_melted", 0.0))
+        val rOunce = BigDecimal.valueOf(getRate("rate_gold_ounce", 0.0))
+        val r1g = BigDecimal.valueOf(getRate("rate_coin_1g", 0.0))
+        val rQuarter = BigDecimal.valueOf(getRate("rate_coin_quarter", 0.0))
+        val rHalf = BigDecimal.valueOf(getRate("rate_coin_half", 0.0))
+        val rEmami = BigDecimal.valueOf(getRate("rate_coin_emami", 0.0))
+        val rBahar = BigDecimal.valueOf(getRate("rate_coin_bahar", 0.0))
+        val rUsd = BigDecimal.valueOf(getRate("rate_currency_usd", 0.0))
+        val rTether = BigDecimal.valueOf(getRate("rate_currency_tether", 0.0))
+        val rEur = BigDecimal.valueOf(getRate("rate_currency_eur", 0.0))
+        val rAed = BigDecimal.valueOf(getRate("rate_currency_aed", 0.0))
+        val rGbp = BigDecimal.valueOf(getRate("rate_currency_gbp", 0.0))
+
+        val inventoryValue = allProducts.fold(BigDecimal.ZERO) { acc, p ->
+            val singleEst = p.calculateAssetValue(
+                dailyPrice18k = dailyGoldPrice,
+                rateGold24k = r24k,
+                rateGoldMelted = rMelted,
+                rateGoldOunce = rOunce,
+                rateCoin1g = r1g,
+                rateCoinQuarter = rQuarter,
+                rateCoinHalf = rHalf,
+                rateCoinEmami = rEmami,
+                rateCoinBahar = rBahar,
+                rateCurrencyUsd = rUsd,
+                rateCurrencyTether = rTether,
+                rateCurrencyEur = rEur,
+                rateCurrencyAed = rAed,
+                rateCurrencyGbp = rGbp,
+                taxRate = taxPercent
+            )
+            acc.add(singleEst.multiply(BigDecimal.valueOf(p.stock.toLong())))
+        }
+
+        val lowStockCount = allProducts.count { it.stock <= it.minStock }
+
+        val allRepairs = shopDao.getAllRepairsSync()
+        val openRepairsCount = allRepairs.count { it.status in listOf("PENDING_APPROVAL", "UNDER_REPAIR") }
+        val readyRepairsCount = allRepairs.count { it.status == "READY" }
+
+        return TodaySummaryPreview(
+            businessDateKey = dateKey,
+            displayedPersianDate = displayedPersian,
+            displayedGregorianDate = displayedGregorian,
+            invoiceCount = invoiceCount,
+            salesTotal = salesTotal,
+            paidTotal = paidTotal,
+            installmentCreatedTotal = installmentCreatedTotal,
+            installmentCreatedCount = installmentCreatedCount,
+            installmentCollectedTotal = installmentCollectedTotal,
+            overdueInstallmentCount = overdueInstallmentCount,
+            inventoryPieceCount = inventoryPieceCount,
+            inventoryWeight = inventoryWeight,
+            inventoryValue = inventoryValue,
+            lowStockCount = lowStockCount,
+            openRepairsCount = openRepairsCount,
+            readyRepairsCount = readyRepairsCount,
+            goldRateAtClose = dailyGoldPrice,
+            existingClosing = existingClosing
+        )
+    }
+
     suspend fun getTodaySummaryPreview(now: Long = System.currentTimeMillis()): TodaySummaryPreview {
         return withContext(Dispatchers.IO) {
-            val startOfDay = BusinessDayUtils.getStartOfDay(now)
-            val endOfDay = BusinessDayUtils.getEndOfDay(now)
-            val dateKey = BusinessDayUtils.getBusinessDateKey(now)
-            val displayedPersian = JalaliCalendar.getJalaliDate(now)
-            val displayedGregorian = BusinessDayUtils.getGregorianDateDisplay(now)
-
-            val existingClosing = shopDao.getLatestDailyClosingForDateSync(dateKey)
-
-            val allInvoices = shopDao.getAllInvoicesSync()
-            val todayInvoices = allInvoices.filter {
-                it.date in startOfDay..endOfDay && !it.paymentType.startsWith("CANCELLED")
-            }
-            val invoiceCount = todayInvoices.size
-            val salesTotal = todayInvoices.fold(BigDecimal.ZERO) { acc, inv -> acc.add(inv.totalAmount) }
-            val paidTotal = todayInvoices.fold(BigDecimal.ZERO) { acc, inv -> acc.add(inv.paidAmount) }
-
-            val todayInvoiceIds = todayInvoices.map { it.id }.toSet()
-            val allInstallments = shopDao.getAllInstallmentsSync()
-            val todayCreatedInstallments = allInstallments.filter { todayInvoiceIds.contains(it.invoiceId) }
-            val installmentCreatedTotal = todayCreatedInstallments.fold(BigDecimal.ZERO) { acc, inst -> acc.add(inst.amount) }
-            val installmentCreatedCount = todayCreatedInstallments.size
-
-            val todayCollectedInstallments = allInstallments.filter {
-                it.paid && it.paymentDate != null && it.paymentDate in startOfDay..endOfDay
-            }
-            val installmentCollectedTotal = todayCollectedInstallments.fold(BigDecimal.ZERO) { acc, inst -> acc.add(inst.amount) }
-
-            val overdueInstallmentCount = allInstallments.count { !it.paid && it.dueDate < now }
-
-            val allProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
-            val inventoryPieceCount = allProducts.sumOf { it.stock }
-            val inventoryWeight = allProducts.fold(BigDecimal.ZERO) { acc, p ->
-                acc.add(p.weightGram.multiply(BigDecimal.valueOf(p.stock.toLong())))
-            }
-
-            val userConfig = shopDao.getUserSync()
-            val dailyGoldPrice = userConfig?.dailyGoldPrice ?: BigDecimal.ZERO
-            val taxPercent = userConfig?.taxPercent ?: BigDecimal("9.0")
-
-            val r24k = BigDecimal.valueOf(getRate("rate_gold_24k", 0.0))
-            val rMelted = BigDecimal.valueOf(getRate("rate_gold_melted", 0.0))
-            val rOunce = BigDecimal.valueOf(getRate("rate_gold_ounce", 0.0))
-            val r1g = BigDecimal.valueOf(getRate("rate_coin_1g", 0.0))
-            val rQuarter = BigDecimal.valueOf(getRate("rate_coin_quarter", 0.0))
-            val rHalf = BigDecimal.valueOf(getRate("rate_coin_half", 0.0))
-            val rEmami = BigDecimal.valueOf(getRate("rate_coin_emami", 0.0))
-            val rBahar = BigDecimal.valueOf(getRate("rate_coin_bahar", 0.0))
-            val rUsd = BigDecimal.valueOf(getRate("rate_currency_usd", 0.0))
-            val rTether = BigDecimal.valueOf(getRate("rate_currency_tether", 0.0))
-            val rEur = BigDecimal.valueOf(getRate("rate_currency_eur", 0.0))
-            val rAed = BigDecimal.valueOf(getRate("rate_currency_aed", 0.0))
-            val rGbp = BigDecimal.valueOf(getRate("rate_currency_gbp", 0.0))
-
-            val inventoryValue = allProducts.fold(BigDecimal.ZERO) { acc, p ->
-                val singleEst = p.calculateAssetValue(
-                    dailyPrice18k = dailyGoldPrice,
-                    rateGold24k = r24k,
-                    rateGoldMelted = rMelted,
-                    rateGoldOunce = rOunce,
-                    rateCoin1g = r1g,
-                    rateCoinQuarter = rQuarter,
-                    rateCoinHalf = rHalf,
-                    rateCoinEmami = rEmami,
-                    rateCoinBahar = rBahar,
-                    rateCurrencyUsd = rUsd,
-                    rateCurrencyTether = rTether,
-                    rateCurrencyEur = rEur,
-                    rateCurrencyAed = rAed,
-                    rateCurrencyGbp = rGbp,
-                    taxRate = taxPercent
-                )
-                acc.add(singleEst.multiply(BigDecimal.valueOf(p.stock.toLong())))
-            }
-
-            val lowStockCount = allProducts.count { it.stock <= it.minStock }
-
-            val allRepairs = shopDao.getAllRepairsSync()
-            val openRepairsCount = allRepairs.count { it.status in listOf("PENDING_APPROVAL", "UNDER_REPAIR") }
-            val readyRepairsCount = allRepairs.count { it.status == "READY" }
-
-            TodaySummaryPreview(
-                businessDateKey = dateKey,
-                displayedPersianDate = displayedPersian,
-                displayedGregorianDate = displayedGregorian,
-                invoiceCount = invoiceCount,
-                salesTotal = salesTotal,
-                paidTotal = paidTotal,
-                installmentCreatedTotal = installmentCreatedTotal,
-                installmentCreatedCount = installmentCreatedCount,
-                installmentCollectedTotal = installmentCollectedTotal,
-                overdueInstallmentCount = overdueInstallmentCount,
-                inventoryPieceCount = inventoryPieceCount,
-                inventoryWeight = inventoryWeight,
-                inventoryValue = inventoryValue,
-                lowStockCount = lowStockCount,
-                openRepairsCount = openRepairsCount,
-                readyRepairsCount = readyRepairsCount,
-                goldRateAtClose = dailyGoldPrice,
-                existingClosing = existingClosing
-            )
+            calculateLiveSummary(now)
         }
     }
 
@@ -498,32 +546,43 @@ class ShopRepository(
         return withContext(Dispatchers.IO) {
             try {
                 val created = appDatabase.withTransaction {
-                    val latest = shopDao.getLatestDailyClosingForDateSync(summary.businessDateKey)
-                    if (latest != null && latest.status == "CLOSED") {
-                        throw IllegalStateException("روز کاری ${summary.displayedPersianDate} قبلاً بسته شده است. برای اعمال تغییرات ابتدا روز را بازگشایی کنید.")
+                    val now = System.currentTimeMillis()
+
+                    // Concurrency guard: check if any active Stock Take session is in progress
+                    val activeStockTake = shopDao.getActiveStockTakeSessionSync()
+                    if (activeStockTake != null) {
+                        throw IllegalStateException("امکان بستن روز در حین نشست انبارگردانی فعال (شماره #${activeStockTake.id}) وجود ندارد. لطفاً ابتدا انبارگردانی را نهایی یا لغو نمایید.")
                     }
 
+                    val dateKey = BusinessDayUtils.getBusinessDateKey(now)
+                    val latest = shopDao.getLatestDailyClosingForDateSync(dateKey)
+                    if (latest != null && latest.status == "CLOSED") {
+                        throw IllegalStateException("روز کاری $dateKey قبلاً بسته شده است. برای اعمال تغییرات ابتدا روز را بازگشایی کنید.")
+                    }
+
+                    // Authoritative recalculation at the exact moment of closing inside the transaction
+                    val live = calculateLiveSummary(now)
                     val revision = if (latest != null) latest.revision + 1 else 1
 
                     val closing = DailyClosing(
-                        businessDateKey = summary.businessDateKey,
-                        closedAt = System.currentTimeMillis(),
-                        displayedPersianDate = summary.displayedPersianDate,
-                        displayedGregorianDate = summary.displayedGregorianDate,
-                        invoiceCount = summary.invoiceCount,
-                        salesTotal = summary.salesTotal,
-                        paidTotal = summary.paidTotal,
-                        installmentCreatedTotal = summary.installmentCreatedTotal,
-                        installmentCreatedCount = summary.installmentCreatedCount,
-                        installmentCollectedTotal = summary.installmentCollectedTotal,
-                        overdueInstallmentCount = summary.overdueInstallmentCount,
-                        inventoryPieceCount = summary.inventoryPieceCount,
-                        inventoryWeight = summary.inventoryWeight,
-                        inventoryValue = summary.inventoryValue,
-                        lowStockCount = summary.lowStockCount,
-                        openRepairsCount = summary.openRepairsCount,
-                        readyRepairsCount = summary.readyRepairsCount,
-                        goldRateAtClose = summary.goldRateAtClose,
+                        businessDateKey = live.businessDateKey,
+                        closedAt = now,
+                        displayedPersianDate = live.displayedPersianDate,
+                        displayedGregorianDate = live.displayedGregorianDate,
+                        invoiceCount = live.invoiceCount,
+                        salesTotal = live.salesTotal,
+                        paidTotal = live.paidTotal,
+                        installmentCreatedTotal = live.installmentCreatedTotal,
+                        installmentCreatedCount = live.installmentCreatedCount,
+                        installmentCollectedTotal = live.installmentCollectedTotal,
+                        overdueInstallmentCount = live.overdueInstallmentCount,
+                        inventoryPieceCount = live.inventoryPieceCount,
+                        inventoryWeight = live.inventoryWeight,
+                        inventoryValue = live.inventoryValue,
+                        lowStockCount = live.lowStockCount,
+                        openRepairsCount = live.openRepairsCount,
+                        readyRepairsCount = live.readyRepairsCount,
+                        goldRateAtClose = live.goldRateAtClose,
                         optionalPhysicalCash = physicalCash,
                         optionalPhysicalGoldWeight = physicalGoldWeight,
                         optionalNotes = notes,
@@ -535,7 +594,7 @@ class ShopRepository(
                     val action = if (revision > 1) "DAILY_CLOSING_RE_CLOSED" else "DAILY_CLOSING_CREATED"
                     logAction(
                         action,
-                        "بستن روز کاری ${summary.displayedPersianDate} (نسخه $revision) با شناسه $id با موفقیت ثبت شد."
+                        "بستن روز کاری ${live.displayedPersianDate} (نسخه $revision) با شناسه $id با موفقیت ثبت شد."
                     )
                     closing.copy(id = id)
                 }
@@ -547,6 +606,10 @@ class ShopRepository(
     }
 
     suspend fun reopenDay(closingId: Long, reason: String = "بازگشایی توسط کاربر"): Result<DailyClosing> {
+        val cleanReason = reason.trim()
+        if (cleanReason.isEmpty()) {
+            return Result.failure(IllegalArgumentException("ثبت دلیل برای بازگشایی روز الزامی است."))
+        }
         return withContext(Dispatchers.IO) {
             try {
                 val updated = appDatabase.withTransaction {
@@ -557,11 +620,15 @@ class ShopRepository(
                         return@withTransaction existing
                     }
 
-                    val updatedRecord = existing.copy(status = "REOPENED")
+                    val updatedRecord = existing.copy(
+                        status = "REOPENED",
+                        reopenReason = cleanReason,
+                        reopenedAt = System.currentTimeMillis()
+                    )
                     shopDao.updateDailyClosing(updatedRecord)
                     logAction(
                         "DAILY_CLOSING_REOPENED",
-                        "روز کاری ${existing.displayedPersianDate} بازگشایی شد. دلیل: $reason"
+                        "روز کاری ${existing.displayedPersianDate} (نسخه ${existing.revision}) بازگشایی شد. دلیل: $cleanReason"
                     )
                     updatedRecord
                 }
@@ -589,6 +656,15 @@ class ShopRepository(
                     }
 
                     val activeProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
+
+                    // Barcode ambiguity check: find duplicate custom barcodes among active products
+                    val duplicateBarcodes = BarcodeResolver.findDuplicateCustomBarcodes(activeProducts)
+                    if (duplicateBarcodes.isNotEmpty()) {
+                        throw IllegalStateException(
+                            "امکان شروع انبارگردانی وجود ندارد زیرا بارکدهای تکراری در بین کالاهای فعال یافت شد: [${duplicateBarcodes.joinToString(", ")}]. لطفاً ابتدا بارکدهای تکراری را اصلاح نمایید."
+                        )
+                    }
+
                     val totalExpected = activeProducts.sumOf { it.stock }
 
                     val newSession = StockTakeSession(
@@ -609,6 +685,7 @@ class ShopRepository(
                             productBarcode = prod.customBarcode,
                             expectedStockAtStart = prod.stock,
                             countedStock = 0,
+                            isCounted = false, // Explicitly not yet counted
                             systemStockAtFinalize = null,
                             difference = -prod.stock,
                             changedDuringSession = false,
@@ -634,22 +711,27 @@ class ShopRepository(
         return withContext(Dispatchers.IO) {
             try {
                 val res = appDatabase.withTransaction {
-                    val cleanBarcode = barcode.trim()
-                    val item = shopDao.getStockTakeItemByBarcode(sessionId, cleanBarcode)
-                        ?: return@withTransaction StockTakeScanResult.NotFound(cleanBarcode)
+                    val session = shopDao.getStockTakeSessionById(sessionId)
+                        ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد")
+
+                    if (session.status != "IN_PROGRESS" && session.status != "REVIEW_REQUIRED") {
+                        throw IllegalStateException("این نشست در وضعیت ${session.status} است و امکان اسکن جدید ندارد.")
+                    }
+
+                    val allItems = shopDao.getStockTakeItemsForSessionSync(sessionId)
+                    val item = BarcodeResolver.resolveStockTakeItem(barcode, allItems)
+                        ?: return@withTransaction StockTakeScanResult.NotFound(barcode.trim())
 
                     val newCount = item.countedStock + 1
                     val updatedItem = item.copy(
                         countedStock = newCount,
+                        isCounted = true,
                         difference = newCount - item.expectedStockAtStart
                     )
                     shopDao.updateStockTakeItem(updatedItem)
 
-                    val session = shopDao.getStockTakeSessionById(sessionId)
-                    val newSessionTotal = (session?.totalCountedPieces ?: 0) + 1
-                    if (session != null) {
-                        shopDao.updateStockTakeSession(session.copy(totalCountedPieces = newSessionTotal))
-                    }
+                    val newSessionTotal = session.totalCountedPieces + 1
+                    shopDao.updateStockTakeSession(session.copy(totalCountedPieces = newSessionTotal))
 
                     StockTakeScanResult.Success(updatedItem, newSessionTotal)
                 }
@@ -664,6 +746,9 @@ class ShopRepository(
         return withContext(Dispatchers.IO) {
             try {
                 val updated = appDatabase.withTransaction {
+                    val session = shopDao.getStockTakeSessionById(sessionId)
+                        ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد")
+
                     val item = shopDao.getStockTakeItemByProduct(sessionId, productId)
                         ?: throw IllegalArgumentException("کالا در این انبارگردانی یافت نشد")
 
@@ -674,12 +759,12 @@ class ShopRepository(
                     val newCount = item.countedStock - 1
                     val updatedItem = item.copy(
                         countedStock = newCount,
+                        isCounted = true,
                         difference = newCount - item.expectedStockAtStart
                     )
                     shopDao.updateStockTakeItem(updatedItem)
 
-                    val session = shopDao.getStockTakeSessionById(sessionId)
-                    if (session != null && session.totalCountedPieces > 0) {
+                    if (session.totalCountedPieces > 0) {
                         shopDao.updateStockTakeSession(session.copy(totalCountedPieces = session.totalCountedPieces - 1))
                     }
 
@@ -700,23 +785,32 @@ class ShopRepository(
         return withContext(Dispatchers.IO) {
             try {
                 val updated = appDatabase.withTransaction {
+                    val session = shopDao.getStockTakeSessionById(sessionId)
+                        ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد")
+
+                    if (session.status != "IN_PROGRESS" && session.status != "REVIEW_REQUIRED") {
+                        throw IllegalStateException("این نشست در وضعیت ${session.status} است و امکان ویرایش شمارش ندارد.")
+                    }
+
                     val item = shopDao.getStockTakeItemByProduct(sessionId, productId)
                         ?: throw IllegalArgumentException("کالا در این انبارگردانی یافت نشد")
 
                     val safeCount = newCountedStock.coerceAtLeast(0)
-                    val diffCount = safeCount - item.countedStock
+                    val diffCount = if (item.isCounted) {
+                        safeCount - item.countedStock
+                    } else {
+                        safeCount
+                    }
 
                     val updatedItem = item.copy(
                         countedStock = safeCount,
+                        isCounted = true,
                         difference = safeCount - item.expectedStockAtStart
                     )
                     shopDao.updateStockTakeItem(updatedItem)
 
-                    val session = shopDao.getStockTakeSessionById(sessionId)
-                    if (session != null) {
-                        val newTotal = (session.totalCountedPieces + diffCount).coerceAtLeast(0)
-                        shopDao.updateStockTakeSession(session.copy(totalCountedPieces = newTotal))
-                    }
+                    val newTotal = (session.totalCountedPieces + diffCount).coerceAtLeast(0)
+                    shopDao.updateStockTakeSession(session.copy(totalCountedPieces = newTotal))
 
                     updatedItem
                 }
@@ -731,15 +825,49 @@ class ShopRepository(
         return withContext(Dispatchers.IO) {
             try {
                 val list = appDatabase.withTransaction {
-                    val items = shopDao.getStockTakeItemsForSessionSync(sessionId)
+                    val session = shopDao.getStockTakeSessionById(sessionId)
+                        ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد: $sessionId")
+
+                    val items = shopDao.getStockTakeItemsForSessionSync(sessionId).toMutableList()
+                    val existingProductIds = items.map { it.productId }.toSet()
+
+                    // Check for new products added to the shop during the active session
+                    val allActiveProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
+                    val newProducts = allActiveProducts.filter { !existingProductIds.contains(it.id) }
+                    if (newProducts.isNotEmpty()) {
+                        val newItems = newProducts.map { prod ->
+                            StockTakeItem(
+                                sessionId = sessionId,
+                                productId = prod.id,
+                                productName = prod.name,
+                                productCategory = prod.category,
+                                productBarcode = prod.customBarcode,
+                                expectedStockAtStart = prod.stock,
+                                countedStock = 0,
+                                isCounted = false,
+                                systemStockAtFinalize = prod.stock,
+                                difference = -prod.stock,
+                                changedDuringSession = true,
+                                status = "NEW_PRODUCT_DURING_SESSION"
+                            )
+                        }
+                        shopDao.insertStockTakeItems(newItems)
+                        items.addAll(newItems)
+                        if (session.status != "REVIEW_REQUIRED") {
+                            shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
+                        }
+                    }
+
                     val updatedList = mutableListOf<StockTakeItem>()
 
                     for (item in items) {
                         val currentProd = shopDao.getProductById(item.productId)
                         val currentSysStock = currentProd?.stock ?: 0
-                        val changedDuring = (currentSysStock != item.expectedStockAtStart)
+                        val changedDuring = (currentSysStock != item.expectedStockAtStart) || item.changedDuringSession
 
                         val status = when {
+                            item.status == "NEW_PRODUCT_DURING_SESSION" -> "NEW_PRODUCT_DURING_SESSION"
+                            !item.isCounted -> "UNCOUNTED"
                             changedDuring -> "NEEDS_REVIEW"
                             item.countedStock == currentSysStock -> "MATCHED"
                             else -> "DISCREPANCY"
@@ -747,12 +875,19 @@ class ShopRepository(
 
                         val updatedItem = item.copy(
                             systemStockAtFinalize = currentSysStock,
+                            difference = if (item.isCounted) item.countedStock - currentSysStock else -currentSysStock,
                             changedDuringSession = changedDuring,
-                            difference = item.countedStock - currentSysStock,
                             status = status
                         )
                         shopDao.updateStockTakeItem(updatedItem)
                         updatedList.add(updatedItem)
+                    }
+
+                    val hasReviewFlags = updatedList.any {
+                        it.status in listOf("UNCOUNTED", "NEEDS_REVIEW", "NEW_PRODUCT_DURING_SESSION")
+                    }
+                    if (hasReviewFlags && session.status == "IN_PROGRESS") {
+                        shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
                     }
 
                     updatedList
@@ -771,19 +906,32 @@ class ShopRepository(
                     val session = shopDao.getStockTakeSessionById(sessionId)
                         ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد")
 
+                    if (session.status == "COMPLETED") {
+                        throw IllegalStateException("این انبارگردانی قبلاً اعمال و نهایی شده است.")
+                    }
+
                     val items = shopDao.getStockTakeItemsForSessionSync(sessionId)
 
-                    var adjustedCount = 0
-                    var matchedCount = 0
+                    // 1. Guard against uncounted items: Cannot finalize while any item is uncounted
+                    val uncounted = items.filter { !it.isCounted }
+                    if (uncounted.isNotEmpty()) {
+                        val sample = uncounted.first().productName
+                        throw IllegalStateException(
+                            "تعداد ${uncounted.size} قلم کالا هنوز شمارش نشده‌اند (مانند «$sample»). جهت نهایی‌سازی انبارگردانی، تمام اقلام باید شمرده شوند."
+                        )
+                    }
+
+                    // 2. Guard against concurrent modifications during session
                     var blockedCount = 0
+                    val blockedItems = mutableListOf<String>()
 
                     for (item in items) {
                         val currentProd = shopDao.getProductById(item.productId)
                         val currentStock = currentProd?.stock ?: 0
 
-                        // Concurrency protection: If stock changed concurrently from expected, do NOT silently adjust
                         if (currentStock != item.expectedStockAtStart) {
                             blockedCount++
+                            blockedItems.add("${item.productName} (موجودی اولیه: ${item.expectedStockAtStart}، موجودی فعلی: $currentStock)")
                             val updated = item.copy(
                                 changedDuringSession = true,
                                 systemStockAtFinalize = currentStock,
@@ -791,12 +939,26 @@ class ShopRepository(
                                 status = "NEEDS_REVIEW"
                             )
                             shopDao.updateStockTakeItem(updated)
-                            logAction(
-                                "STOCK_ADJUSTMENT_BLOCKED_BY_CONCURRENT_CHANGE",
-                                "تعدیل موجودی برای «${item.productName}» (کد ${item.productId}) مسدود شد زیرا موجودی در حین شمارش تغییر یافته بود (شروع: ${item.expectedStockAtStart}، اکنون: $currentStock)."
-                            )
-                            continue
                         }
+                    }
+
+                    if (blockedCount > 0) {
+                        shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
+                        logAction(
+                            "STOCK_TAKE_FINAL_APPLY_BLOCKED",
+                            "اعمال نهایی انبارگردانی #${session.id} به دلیل تغییر همزمان $blockedCount قلم کالا مسدود شد: [${blockedItems.take(3).joinToString("، ")}]."
+                        )
+                        throw IllegalStateException(
+                            "تعداد $blockedCount قلم کالا حین انبارگردانی توسط سایر بخش‌های نرم‌افزار تغییر یافته‌اند: [${blockedItems.take(3).joinToString("، ")}]. وضعیت نشست به REVIEW_REQUIRED تغییر یافت و اعمال نهایی مسدود شد. لطفاً اقلام را مجدداً بازبینی فرمایید."
+                        )
+                    }
+
+                    var adjustedCount = 0
+                    var matchedCount = 0
+
+                    for (item in items) {
+                        val currentProd = shopDao.getProductById(item.productId)
+                        val currentStock = currentProd?.stock ?: 0
 
                         if (item.countedStock == currentStock) {
                             matchedCount++
@@ -807,7 +969,6 @@ class ShopRepository(
                             )
                             shopDao.updateStockTakeItem(updated)
                         } else {
-                            // Safe to adjust
                             shopDao.updateProductStock(item.productId, item.countedStock)
                             adjustedCount++
                             val updated = item.copy(
@@ -830,13 +991,13 @@ class ShopRepository(
                     shopDao.updateStockTakeSession(completedSession)
                     logAction(
                         "STOCK_TAKE_COMPLETED",
-                        "انبارگردانی شماره $sessionId به پایان رسید. $adjustedCount قلم اصلاح شد، $matchedCount قلم منطبق، $blockedCount قلم نیازمند بررسی دستی."
+                        "انبارگردانی شماره $sessionId با موفقیت نهایی شد. $adjustedCount قلم اصلاح شد و $matchedCount قلم منطبق بود."
                     )
 
                     StockTakeApplyResult(
                         adjustedCount = adjustedCount,
                         matchedCount = matchedCount,
-                        blockedCount = blockedCount,
+                        blockedCount = 0,
                         completedSession = completedSession
                     )
                 }

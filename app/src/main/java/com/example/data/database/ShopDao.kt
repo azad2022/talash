@@ -206,10 +206,10 @@ interface ShopDao {
     suspend fun clearDailyClosings()
 
     // --- STOCK TAKE SESSIONS & ITEMS ---
-    @Query("SELECT * FROM stock_take_sessions WHERE status = 'IN_PROGRESS' ORDER BY startedAt DESC LIMIT 1")
+    @Query("SELECT * FROM stock_take_sessions WHERE status IN ('IN_PROGRESS', 'REVIEW_REQUIRED') ORDER BY startedAt DESC LIMIT 1")
     fun getActiveStockTakeSession(): Flow<StockTakeSession?>
 
-    @Query("SELECT * FROM stock_take_sessions WHERE status = 'IN_PROGRESS' ORDER BY startedAt DESC LIMIT 1")
+    @Query("SELECT * FROM stock_take_sessions WHERE status IN ('IN_PROGRESS', 'REVIEW_REQUIRED') ORDER BY startedAt DESC LIMIT 1")
     suspend fun getActiveStockTakeSessionSync(): StockTakeSession?
 
     @Query("SELECT * FROM stock_take_sessions ORDER BY startedAt DESC")

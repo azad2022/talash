@@ -537,7 +537,7 @@ fun DailyClosingScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "روز کاری: ${closing.displayedPersianDate}",
+                                            text = "روز کاری: ${closing.displayedPersianDate} (نسخه ${closing.revision})",
                                             color = MetallicGold,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
@@ -562,6 +562,24 @@ fun DailyClosingScreen(
                                         color = TextGray,
                                         fontSize = 11.sp
                                     )
+
+                                    if (closing.status == "REOPENED") {
+                                        closing.reopenReason?.takeIf { it.isNotBlank() }?.let { reason ->
+                                            Text(
+                                                text = "دلیل بازگشایی: $reason",
+                                                color = Color(0xFFFFB300),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                        closing.reopenedAt?.let { rAt ->
+                                            Text(
+                                                text = "زمان بازگشایی: ${JalaliCalendar.getJalaliDateTime(rAt)}",
+                                                color = TextGray,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
 
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),

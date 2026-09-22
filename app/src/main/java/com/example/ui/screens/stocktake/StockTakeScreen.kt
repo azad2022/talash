@@ -189,7 +189,7 @@ fun StockTakeScreen(
                         )
                     }
 
-                    val pastSessions = allSessions.filter { it.status != "ACTIVE" }
+                    val pastSessions = allSessions.filter { it.status == "COMPLETED" || it.status == "CANCELLED" }
                     if (pastSessions.isEmpty()) {
                         item {
                             Text(
@@ -302,9 +302,19 @@ fun StockTakeScreen(
                                         modifier = Modifier
                                             .size(10.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF00E676))
+                                            .background(if (session.status == "REVIEW_REQUIRED") Color(0xFFFF9800) else Color(0xFF00E676))
                                     )
-                                    Text("نشست فعال انبارگردانی #${session.id}", color = MetallicGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("نشست انبارگردانی #${session.id}", color = MetallicGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    if (session.status == "REVIEW_REQUIRED") {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFFFF9800).copy(alpha = 0.2f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("نیازمند بازبینی", color = Color(0xFFFF9800), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
                                 TextButton(
                                     onClick = { showCancelConfirmDialog = true },
@@ -314,12 +324,33 @@ fun StockTakeScreen(
                                 }
                             }
 
+                            if (session.status == "REVIEW_REQUIRED") {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFF9800).copy(alpha = 0.15f)),
+                                    border = BorderStroke(1.dp, Color(0xFFFF9800))
+                                ) {
+                                    Text(
+                                        text = "توجه: در حین این نشست انبارگردانی، موجودی برخی اقلام یا لیست کالاها تغییر کرده است. لطفاً پیش از نهایی‌سازی، دکمه «بررسی مغایرت‌ها» را جهت تطبیق نهایی بزنید.",
+                                        color = Color(0xFFFFB300),
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(8.dp),
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+
                             // Metrics summary
                             val totalItems = stockTakeItems.size
-                            val countedItems = stockTakeItems.count { it.countedStock > 0 }
-                            val matchedItems = stockTakeItems.count { it.countedStock == it.expectedStockAtStart && it.status != "NEEDS_REVIEW" }
+                            val countedItems = stockTakeItems.count { it.isCounted }
+                            val uncountedItems = stockTakeItems.count { !it.isCounted }
+                            val matchedItems = stockTakeItems.count {
+                                it.isCounted && it.countedStock == it.expectedStockAtStart &&
+                                        it.status != "NEEDS_REVIEW" && it.status != "NEW_PRODUCT_DURING_SESSION"
+                            }
                             val discrepantItems = stockTakeItems.count {
-                                (it.countedStock != it.expectedStockAtStart && it.countedStock > 0) || it.status == "NEEDS_REVIEW"
+                                it.isCounted && (it.countedStock != it.expectedStockAtStart ||
+                                        it.status == "NEEDS_REVIEW" || it.status == "NEW_PRODUCT_DURING_SESSION")
                             }
 
                             Row(
@@ -328,6 +359,7 @@ fun StockTakeScreen(
                             ) {
                                 MetricColumn(title = "کل اقلام", value = "$totalItems", color = TextWhite)
                                 MetricColumn(title = "شمارش‌شده", value = "$countedItems", color = MetallicGold)
+                                MetricColumn(title = "شمارش‌نشده", value = "$uncountedItems", color = if (uncountedItems > 0) Color(0xFFFF9800) else TextGray)
                                 MetricColumn(title = "منطبق", value = "$matchedItems", color = StatusGreen)
                                 MetricColumn(title = "مغایرت", value = "$discrepantItems", color = if (discrepantItems > 0) Color(0xFFFF5252) else TextGray)
                             }
@@ -486,9 +518,10 @@ fun StockTakeScreen(
                                 item.productCategory.contains(searchQuery, ignoreCase = true)
 
                         val matchesFilter = when (selectedFilter) {
-                            "DISCREPANT" -> (item.countedStock != item.expectedStockAtStart && item.countedStock > 0) || item.status == "NEEDS_REVIEW"
-                            "COUNTED" -> item.countedStock > 0
-                            "UNCOUNTED" -> item.countedStock == 0
+                            "DISCREPANT" -> item.isCounted && (item.countedStock != item.expectedStockAtStart ||
+                                    item.status == "NEEDS_REVIEW" || item.status == "NEW_PRODUCT_DURING_SESSION")
+                            "COUNTED" -> item.isCounted
+                            "UNCOUNTED" -> !item.isCounted
                             else -> true
                         }
                         matchesSearch && matchesFilter
@@ -523,6 +556,9 @@ fun StockTakeScreen(
                                         if (item.countedStock > 0) {
                                             viewModel.manualUpdateStockTakeItemCount(item.productId, item.countedStock - 1)
                                         }
+                                    },
+                                    onConfirmZero = {
+                                        viewModel.manualUpdateStockTakeItemCount(item.productId, 0)
                                     }
                                 )
                             }
@@ -674,6 +710,9 @@ fun StockTakeScreen(
             it.status != "MATCHED" && (it.countedStock != it.expectedStockAtStart || it.status == "NEEDS_REVIEW")
         }
 
+        val uncountedItems = reviewItemsList.filter { !it.isCounted }
+        val changedItems = reviewItemsList.filter { it.status == "NEEDS_REVIEW" || it.status == "NEW_PRODUCT_DURING_SESSION" }
+
         AlertDialog(
             onDismissRequest = { showReviewReconciliationDialog = false },
             title = {
@@ -686,6 +725,39 @@ fun StockTakeScreen(
                         .heightIn(max = 450.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    if (uncountedItems.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFF5252).copy(alpha = 0.15f)),
+                            border = BorderStroke(1.dp, Color(0xFFFF5252))
+                        ) {
+                            Text(
+                                text = "هشدار: تعداد ${uncountedItems.size} قلم کالا هنوز شمرده نشده‌اند. جهت ثبت قطعی، باید وضعیت تمام کالاها مشخص شود.",
+                                color = Color(0xFFFF5252),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(10.dp),
+                                lineHeight = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (changedItems.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFF9800).copy(alpha = 0.15f)),
+                            border = BorderStroke(1.dp, Color(0xFFFF9800))
+                        ) {
+                            Text(
+                                text = "توجه: تعداد ${changedItems.size} قلم کالا در حین انبارگردانی دستخوش تغییر همزمان شده‌اند.",
+                                color = Color(0xFFFFB300),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(10.dp),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
                     Text(
                         text = "خلاصه مغایرت‌های کشف‌شده (${discrepancies.size} قلم دارای مغایرت):",
                         color = TextWhite,
@@ -714,13 +786,16 @@ fun StockTakeScreen(
                         ) {
                             items(discrepancies) { itm ->
                                 val statusText = when {
+                                    itm.status == "NEW_PRODUCT_DURING_SESSION" -> "کالای جدید حین انبارگردانی"
                                     itm.status == "NEEDS_REVIEW" -> "نیازمند بررسی (تغییر در حین انبارگردانی)"
+                                    !itm.isCounted -> "شمارش‌نشده"
                                     itm.countedStock < itm.expectedStockAtStart -> "کسری (${itm.expectedStockAtStart - itm.countedStock})"
                                     itm.countedStock > itm.expectedStockAtStart -> "مازاد (+${itm.countedStock - itm.expectedStockAtStart})"
                                     else -> "منطبق"
                                 }
                                 val statusColor = when {
-                                    itm.status == "NEEDS_REVIEW" -> Color(0xFFFF9800)
+                                    itm.status == "NEW_PRODUCT_DURING_SESSION" || itm.status == "NEEDS_REVIEW" -> Color(0xFFFF9800)
+                                    !itm.isCounted -> TextGray
                                     itm.countedStock < itm.expectedStockAtStart -> Color(0xFFFF5252)
                                     itm.countedStock > itm.expectedStockAtStart -> Color(0xFFFFB300)
                                     else -> StatusGreen
@@ -736,7 +811,7 @@ fun StockTakeScreen(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(itm.productName, color = TextWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        Text("دفتری: ${itm.expectedStockAtStart} | شمارش: ${itm.countedStock}", color = TextGray, fontSize = 10.sp)
+                                        Text("دفتری: ${itm.expectedStockAtStart} | شمارش: ${if (itm.isCounted) itm.countedStock else "---"}", color = TextGray, fontSize = 10.sp)
                                     }
                                     Text(statusText, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
@@ -757,11 +832,15 @@ fun StockTakeScreen(
                     onClick = {
                         viewModel.applyStockTakeAdjustments(session.id) { result ->
                             showReviewReconciliationDialog = false
-                            result.getOrNull()?.let { applyRes ->
+                            result.onSuccess { applyRes ->
                                 showFinalApplySuccessDialog = applyRes
+                            }.onFailure { err ->
+                                lastScanMessage = err.message ?: "خطا در اعمال تعدیل انبار"
+                                lastScanIsSuccess = false
                             }
                         }
                     },
+                    enabled = uncountedItems.isEmpty() && changedItems.isEmpty(),
                     colors = ButtonDefaults.buttonColors(containerColor = MetallicGold, contentColor = DarkObsidian)
                 ) {
                     Text("تایید و اعمال تعدیل انبار", fontWeight = FontWeight.Bold)
@@ -818,21 +897,24 @@ fun StockTakeScreen(
 private fun StockTakeItemCard(
     item: StockTakeItem,
     onIncrement: () -> Unit,
-    onDecrement: () -> Unit
+    onDecrement: () -> Unit,
+    onConfirmZero: () -> Unit
 ) {
     val statusColor = when {
+        item.status == "NEW_PRODUCT_DURING_SESSION" -> Color(0xFFFF9800)
         item.status == "NEEDS_REVIEW" -> Color(0xFFFF9800)
         item.status == "ADJUSTED" -> MetallicGold
-        item.countedStock == 0 -> TextGray
+        !item.isCounted -> TextGray
         item.countedStock == item.expectedStockAtStart -> StatusGreen
         item.countedStock < item.expectedStockAtStart -> Color(0xFFFF5252)
         else -> Color(0xFFFFB300)
     }
 
     val statusBadgeText = when {
+        item.status == "NEW_PRODUCT_DURING_SESSION" -> "کالای جدید حین انبارگردانی"
         item.status == "NEEDS_REVIEW" -> "هشدار تغییر حین شمارش"
         item.status == "ADJUSTED" -> "تعدیل‌شده"
-        item.countedStock == 0 -> "شمارش‌نشده"
+        !item.isCounted -> "شمارش‌نشده"
         item.countedStock == item.expectedStockAtStart -> "منطبق"
         item.countedStock < item.expectedStockAtStart -> "کسری (${item.expectedStockAtStart - item.countedStock})"
         else -> "مازاد (+${item.countedStock - item.expectedStockAtStart})"
@@ -843,7 +925,7 @@ private fun StockTakeItemCard(
         colors = CardDefaults.cardColors(containerColor = SmokyCard),
         border = BorderStroke(
             width = 1.dp,
-            color = if (item.countedStock > 0) statusColor.copy(alpha = 0.5f) else CharcoalBorder
+            color = if (item.isCounted) statusColor.copy(alpha = 0.5f) else CharcoalBorder
         )
     ) {
         Row(
@@ -891,11 +973,23 @@ private fun StockTakeItemCard(
                 }
             }
 
-            // Quick counter controls
+            // Quick counter controls & zero confirmation
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                if (!item.isCounted) {
+                    OutlinedButton(
+                        onClick = onConfirmZero,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp),
+                        border = BorderStroke(1.dp, CharcoalBorder),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("شمارش ۰", fontSize = 10.sp, color = TextGray)
+                    }
+                }
+
                 IconButton(
                     onClick = onDecrement,
                     modifier = Modifier
@@ -911,12 +1005,12 @@ private fun StockTakeItemCard(
                         .widthIn(min = 36.dp)
                         .height(32.dp)
                         .background(DarkObsidian, RoundedCornerShape(6.dp))
-                        .border(1.dp, CharcoalBorder, RoundedCornerShape(6.dp)),
+                        .border(1.dp, if (item.isCounted) MetallicGold.copy(alpha = 0.5f) else CharcoalBorder, RoundedCornerShape(6.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "${item.countedStock}",
-                        color = if (item.countedStock > 0) MetallicGold else TextGray,
+                        text = if (item.isCounted) "${item.countedStock}" else "-",
+                        color = if (item.isCounted) MetallicGold else TextGray,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
                     )

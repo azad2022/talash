@@ -419,7 +419,9 @@ data class DailyClosing(
     val optionalPhysicalGoldWeight: BigDecimal? = null,
     val optionalNotes: String? = null,
     val status: String = "CLOSED", // "CLOSED", "REOPENED"
-    val revision: Int = 1
+    val revision: Int = 1,
+    val reopenReason: String? = null,
+    val reopenedAt: Long? = null
 )
 
 @Entity(tableName = "stock_take_sessions")
@@ -427,7 +429,7 @@ data class StockTakeSession(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val startedAt: Long = System.currentTimeMillis(),
     val completedAt: Long? = null,
-    val status: String = "IN_PROGRESS", // "IN_PROGRESS", "COMPLETED", "CANCELLED"
+    val status: String = "IN_PROGRESS", // "IN_PROGRESS", "REVIEW_REQUIRED", "COMPLETED", "CANCELLED"
     val notes: String? = null,
     val totalExpectedPieces: Int = 0,
     val totalCountedPieces: Int = 0
@@ -449,8 +451,9 @@ data class StockTakeItem(
     val productBarcode: String,
     val expectedStockAtStart: Int,
     val countedStock: Int = 0,
+    val isCounted: Boolean = false,
     val systemStockAtFinalize: Int? = null,
     val difference: Int = 0, // countedStock - expectedStockAtStart
     val changedDuringSession: Boolean = false,
-    val status: String = "PENDING" // "PENDING", "MATCHED", "DISCREPANCY", "NEEDS_REVIEW", "ADJUSTED"
+    val status: String = "PENDING" // "PENDING", "MATCHED", "DISCREPANCY", "NEEDS_REVIEW", "ADJUSTED", "UNCOUNTED", "NEW_PRODUCT_DURING_SESSION"
 )
