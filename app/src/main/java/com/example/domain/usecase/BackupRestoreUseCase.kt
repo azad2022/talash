@@ -16,6 +16,9 @@ data class BackupData(
     val repairs: List<Repair> = emptyList(),
     val goldPriceHistory: List<GoldPriceHistory> = emptyList(),
     val auditLogs: List<AuditLog> = emptyList(),
+    val dailyClosings: List<DailyClosing> = emptyList(),
+    val stockTakeSessions: List<StockTakeSession> = emptyList(),
+    val stockTakeItems: List<StockTakeItem> = emptyList(),
     val userConfig: User? = null
 )
 
@@ -162,6 +165,73 @@ class BackupRestoreUseCase {
                 })
             }
             put("auditLogs", auditLogsArray)
+
+            // Daily Closings
+            val dailyClosingsArray = JSONArray()
+            data.dailyClosings.forEach { dc ->
+                dailyClosingsArray.put(JSONObject().apply {
+                    put("id", dc.id)
+                    put("businessDateKey", dc.businessDateKey)
+                    put("closedAt", dc.closedAt)
+                    put("displayedPersianDate", dc.displayedPersianDate)
+                    put("displayedGregorianDate", dc.displayedGregorianDate)
+                    put("invoiceCount", dc.invoiceCount)
+                    put("salesTotal", dc.salesTotal.toPlainString())
+                    put("paidTotal", dc.paidTotal.toPlainString())
+                    put("installmentCreatedTotal", dc.installmentCreatedTotal.toPlainString())
+                    put("installmentCreatedCount", dc.installmentCreatedCount)
+                    put("installmentCollectedTotal", dc.installmentCollectedTotal.toPlainString())
+                    put("overdueInstallmentCount", dc.overdueInstallmentCount)
+                    put("inventoryPieceCount", dc.inventoryPieceCount)
+                    put("inventoryWeight", dc.inventoryWeight.toPlainString())
+                    put("inventoryValue", dc.inventoryValue.toPlainString())
+                    put("lowStockCount", dc.lowStockCount)
+                    put("openRepairsCount", dc.openRepairsCount)
+                    put("readyRepairsCount", dc.readyRepairsCount)
+                    put("goldRateAtClose", dc.goldRateAtClose.toPlainString())
+                    put("optionalPhysicalCash", dc.optionalPhysicalCash?.toPlainString() ?: JSONObject.NULL)
+                    put("optionalPhysicalGoldWeight", dc.optionalPhysicalGoldWeight?.toPlainString() ?: JSONObject.NULL)
+                    put("optionalNotes", dc.optionalNotes ?: JSONObject.NULL)
+                    put("status", dc.status)
+                    put("revision", dc.revision)
+                })
+            }
+            put("dailyClosings", dailyClosingsArray)
+
+            // Stock Take Sessions
+            val stockTakeSessionsArray = JSONArray()
+            data.stockTakeSessions.forEach { st ->
+                stockTakeSessionsArray.put(JSONObject().apply {
+                    put("id", st.id)
+                    put("startedAt", st.startedAt)
+                    put("completedAt", st.completedAt ?: JSONObject.NULL)
+                    put("status", st.status)
+                    put("notes", st.notes ?: JSONObject.NULL)
+                    put("totalExpectedPieces", st.totalExpectedPieces)
+                    put("totalCountedPieces", st.totalCountedPieces)
+                })
+            }
+            put("stockTakeSessions", stockTakeSessionsArray)
+
+            // Stock Take Items
+            val stockTakeItemsArray = JSONArray()
+            data.stockTakeItems.forEach { sti ->
+                stockTakeItemsArray.put(JSONObject().apply {
+                    put("id", sti.id)
+                    put("sessionId", sti.sessionId)
+                    put("productId", sti.productId)
+                    put("productName", sti.productName)
+                    put("productCategory", sti.productCategory)
+                    put("productBarcode", sti.productBarcode)
+                    put("expectedStockAtStart", sti.expectedStockAtStart)
+                    put("countedStock", sti.countedStock)
+                    put("systemStockAtFinalize", sti.systemStockAtFinalize ?: JSONObject.NULL)
+                    put("difference", sti.difference)
+                    put("changedDuringSession", sti.changedDuringSession)
+                    put("status", sti.status)
+                })
+            }
+            put("stockTakeItems", stockTakeItemsArray)
         }
 
         return root.toString(2)
@@ -184,6 +254,7 @@ class BackupRestoreUseCase {
         val customerIds = data.customers.map { it.id }.toSet()
         val productIds = data.products.map { it.id }.toSet()
         val invoiceIds = data.invoices.map { it.id }.toSet()
+        val sessionIds = data.stockTakeSessions.map { it.id }.toSet()
 
         // Validate Invoices -> Customer
         for (inv in data.invoices) {
@@ -222,6 +293,15 @@ class BackupRestoreUseCase {
             if (rep.customerId > 0 && !customerIds.contains(rep.customerId)) {
                 return Result.failure(
                     IllegalArgumentException("فایل پشتیبان نامعتبر است: سفارش تعمیر شماره ${rep.id} به مشتری شناسه ${rep.customerId} اشاره دارد که وجود ندارد.")
+                )
+            }
+        }
+
+        // Validate StockTakeItems -> Session
+        for (sti in data.stockTakeItems) {
+            if (sessionIds.isNotEmpty() && !sessionIds.contains(sti.sessionId)) {
+                return Result.failure(
+                    IllegalArgumentException("فایل پشتیبان نامعتبر است: آیتم انبارگردانی به نشست شناسه ${sti.sessionId} اشاره دارد که وجود ندارد.")
                 )
             }
         }
@@ -408,6 +488,82 @@ class BackupRestoreUseCase {
                 }
             }
 
+            val dailyClosingsList = mutableListOf<DailyClosing>()
+            root.optJSONArray("dailyClosings")?.let { array ->
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    dailyClosingsList.add(
+                        DailyClosing(
+                            id = obj.optLong("id", 0),
+                            businessDateKey = obj.optString("businessDateKey", ""),
+                            closedAt = obj.optLong("closedAt", System.currentTimeMillis()),
+                            displayedPersianDate = obj.optString("displayedPersianDate", ""),
+                            displayedGregorianDate = obj.optString("displayedGregorianDate", ""),
+                            invoiceCount = obj.optInt("invoiceCount", 0),
+                            salesTotal = obj.optBigDecimal("salesTotal", BigDecimal.ZERO),
+                            paidTotal = obj.optBigDecimal("paidTotal", BigDecimal.ZERO),
+                            installmentCreatedTotal = obj.optBigDecimal("installmentCreatedTotal", BigDecimal.ZERO),
+                            installmentCreatedCount = obj.optInt("installmentCreatedCount", 0),
+                            installmentCollectedTotal = obj.optBigDecimal("installmentCollectedTotal", BigDecimal.ZERO),
+                            overdueInstallmentCount = obj.optInt("overdueInstallmentCount", 0),
+                            inventoryPieceCount = obj.optInt("inventoryPieceCount", 0),
+                            inventoryWeight = obj.optBigDecimal("inventoryWeight", BigDecimal.ZERO),
+                            inventoryValue = obj.optBigDecimal("inventoryValue", BigDecimal.ZERO),
+                            lowStockCount = obj.optInt("lowStockCount", 0),
+                            openRepairsCount = obj.optInt("openRepairsCount", 0),
+                            readyRepairsCount = obj.optInt("readyRepairsCount", 0),
+                            goldRateAtClose = obj.optBigDecimal("goldRateAtClose", BigDecimal.ZERO),
+                            optionalPhysicalCash = if (obj.isNull("optionalPhysicalCash")) null else obj.optBigDecimal("optionalPhysicalCash"),
+                            optionalPhysicalGoldWeight = if (obj.isNull("optionalPhysicalGoldWeight")) null else obj.optBigDecimal("optionalPhysicalGoldWeight"),
+                            optionalNotes = if (obj.isNull("optionalNotes")) null else obj.optString("optionalNotes"),
+                            status = obj.optString("status", "CLOSED"),
+                            revision = obj.optInt("revision", 1)
+                        )
+                    )
+                }
+            }
+
+            val stockTakeSessionsList = mutableListOf<StockTakeSession>()
+            root.optJSONArray("stockTakeSessions")?.let { array ->
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    stockTakeSessionsList.add(
+                        StockTakeSession(
+                            id = obj.optLong("id", 0),
+                            startedAt = obj.optLong("startedAt", System.currentTimeMillis()),
+                            completedAt = if (obj.isNull("completedAt")) null else obj.optLong("completedAt"),
+                            status = obj.optString("status", "IN_PROGRESS"),
+                            notes = if (obj.isNull("notes")) null else obj.optString("notes"),
+                            totalExpectedPieces = obj.optInt("totalExpectedPieces", 0),
+                            totalCountedPieces = obj.optInt("totalCountedPieces", 0)
+                        )
+                    )
+                }
+            }
+
+            val stockTakeItemsList = mutableListOf<StockTakeItem>()
+            root.optJSONArray("stockTakeItems")?.let { array ->
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    stockTakeItemsList.add(
+                        StockTakeItem(
+                            id = obj.optLong("id", 0),
+                            sessionId = obj.optLong("sessionId", 0),
+                            productId = obj.optInt("productId", 0),
+                            productName = obj.optString("productName", ""),
+                            productCategory = obj.optString("productCategory", ""),
+                            productBarcode = obj.optString("productBarcode", ""),
+                            expectedStockAtStart = obj.optInt("expectedStockAtStart", 0),
+                            countedStock = obj.optInt("countedStock", 0),
+                            systemStockAtFinalize = if (obj.isNull("systemStockAtFinalize")) null else obj.optInt("systemStockAtFinalize"),
+                            difference = obj.optInt("difference", 0),
+                            changedDuringSession = obj.optBoolean("changedDuringSession", false),
+                            status = obj.optString("status", "PENDING")
+                        )
+                    )
+                }
+            }
+
             val data = BackupData(
                 version = version,
                 timestamp = timestamp,
@@ -419,6 +575,9 @@ class BackupRestoreUseCase {
                 repairs = repairsList,
                 goldPriceHistory = goldHistoryList,
                 auditLogs = auditLogsList,
+                dailyClosings = dailyClosingsList,
+                stockTakeSessions = stockTakeSessionsList,
+                stockTakeItems = stockTakeItemsList,
                 userConfig = userConfig
             )
 

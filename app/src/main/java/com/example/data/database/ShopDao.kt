@@ -27,6 +27,9 @@ interface ShopDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCustomer(customer: Customer): Long
 
+    @Query("SELECT COUNT(*) FROM sale_invoices WHERE customerId = :customerId")
+    suspend fun getInvoiceCountForCustomer(customerId: Int): Int
+
     @Delete
     suspend fun deleteCustomer(customer: Customer)
 
@@ -72,6 +75,9 @@ interface ShopDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertInvoice(invoice: SaleInvoice): Long
+
+    @Update
+    suspend fun updateInvoice(invoice: SaleInvoice)
 
     @Delete
     suspend fun deleteInvoice(invoice: SaleInvoice)
@@ -176,4 +182,75 @@ interface ShopDao {
 
     @Query("DELETE FROM audit_logs")
     suspend fun clearLogs()
+
+    // --- DAILY CLOSINGS ---
+    @Query("SELECT * FROM daily_closings ORDER BY closedAt DESC")
+    fun getAllDailyClosings(): Flow<List<DailyClosing>>
+
+    @Query("SELECT * FROM daily_closings WHERE id = :id LIMIT 1")
+    fun getDailyClosingById(id: Long): Flow<DailyClosing?>
+
+    @Query("SELECT * FROM daily_closings WHERE businessDateKey = :businessDateKey ORDER BY revision DESC, closedAt DESC LIMIT 1")
+    suspend fun getLatestDailyClosingForDateSync(businessDateKey: String): DailyClosing?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDailyClosing(dailyClosing: DailyClosing): Long
+
+    @Update
+    suspend fun updateDailyClosing(dailyClosing: DailyClosing)
+
+    @Query("SELECT * FROM daily_closings")
+    suspend fun getAllDailyClosingsSync(): List<DailyClosing>
+
+    @Query("DELETE FROM daily_closings")
+    suspend fun clearDailyClosings()
+
+    // --- STOCK TAKE SESSIONS & ITEMS ---
+    @Query("SELECT * FROM stock_take_sessions WHERE status = 'IN_PROGRESS' ORDER BY startedAt DESC LIMIT 1")
+    fun getActiveStockTakeSession(): Flow<StockTakeSession?>
+
+    @Query("SELECT * FROM stock_take_sessions WHERE status = 'IN_PROGRESS' ORDER BY startedAt DESC LIMIT 1")
+    suspend fun getActiveStockTakeSessionSync(): StockTakeSession?
+
+    @Query("SELECT * FROM stock_take_sessions ORDER BY startedAt DESC")
+    fun getAllStockTakeSessions(): Flow<List<StockTakeSession>>
+
+    @Query("SELECT * FROM stock_take_sessions WHERE id = :sessionId LIMIT 1")
+    suspend fun getStockTakeSessionById(sessionId: Long): StockTakeSession?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStockTakeSession(session: StockTakeSession): Long
+
+    @Update
+    suspend fun updateStockTakeSession(session: StockTakeSession)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStockTakeItems(items: List<StockTakeItem>)
+
+    @Update
+    suspend fun updateStockTakeItem(item: StockTakeItem)
+
+    @Query("SELECT * FROM stock_take_items WHERE sessionId = :sessionId ORDER BY id ASC")
+    fun getStockTakeItemsForSession(sessionId: Long): Flow<List<StockTakeItem>>
+
+    @Query("SELECT * FROM stock_take_items WHERE sessionId = :sessionId ORDER BY id ASC")
+    suspend fun getStockTakeItemsForSessionSync(sessionId: Long): List<StockTakeItem>
+
+    @Query("SELECT * FROM stock_take_items WHERE sessionId = :sessionId AND productBarcode = :barcode LIMIT 1")
+    suspend fun getStockTakeItemByBarcode(sessionId: Long, barcode: String): StockTakeItem?
+
+    @Query("SELECT * FROM stock_take_items WHERE sessionId = :sessionId AND productId = :productId LIMIT 1")
+    suspend fun getStockTakeItemByProduct(sessionId: Long, productId: Int): StockTakeItem?
+
+    @Query("SELECT * FROM stock_take_sessions")
+    suspend fun getAllStockTakeSessionsSync(): List<StockTakeSession>
+
+    @Query("SELECT * FROM stock_take_items")
+    suspend fun getAllStockTakeItemsSync(): List<StockTakeItem>
+
+    @Query("DELETE FROM stock_take_sessions")
+    suspend fun clearStockTakeSessions()
+
+    @Query("DELETE FROM stock_take_items")
+    suspend fun clearStockTakeItems()
 }

@@ -17,9 +17,12 @@ import com.example.data.model.*
         Installment::class,
         Repair::class,
         GoldPriceHistory::class,
-        AuditLog::class
+        AuditLog::class,
+        DailyClosing::class,
+        StockTakeSession::class,
+        StockTakeItem::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -193,6 +196,74 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Create daily_closings table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `daily_closings` (
+                        `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        `businessDateKey` TEXT NOT NULL,
+                        `closedAt` INTEGER NOT NULL,
+                        `displayedPersianDate` TEXT NOT NULL,
+                        `displayedGregorianDate` TEXT NOT NULL,
+                        `invoiceCount` INTEGER NOT NULL,
+                        `salesTotal` TEXT NOT NULL,
+                        `paidTotal` TEXT NOT NULL,
+                        `installmentCreatedTotal` TEXT NOT NULL,
+                        `installmentCreatedCount` INTEGER NOT NULL,
+                        `installmentCollectedTotal` TEXT NOT NULL,
+                        `overdueInstallmentCount` INTEGER NOT NULL,
+                        `inventoryPieceCount` INTEGER NOT NULL,
+                        `inventoryWeight` TEXT NOT NULL,
+                        `inventoryValue` TEXT NOT NULL,
+                        `lowStockCount` INTEGER NOT NULL,
+                        `openRepairsCount` INTEGER NOT NULL,
+                        `readyRepairsCount` INTEGER NOT NULL,
+                        `goldRateAtClose` TEXT NOT NULL,
+                        `optionalPhysicalCash` TEXT,
+                        `optionalPhysicalGoldWeight` TEXT,
+                        `optionalNotes` TEXT,
+                        `status` TEXT NOT NULL,
+                        `revision` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                // 2. Create stock_take_sessions table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `stock_take_sessions` (
+                        `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        `startedAt` INTEGER NOT NULL,
+                        `completedAt` INTEGER,
+                        `status` TEXT NOT NULL,
+                        `notes` TEXT,
+                        `totalExpectedPieces` INTEGER NOT NULL,
+                        `totalCountedPieces` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                // 3. Create stock_take_items table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `stock_take_items` (
+                        `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        `sessionId` INTEGER NOT NULL,
+                        `productId` INTEGER NOT NULL,
+                        `productName` TEXT NOT NULL,
+                        `productCategory` TEXT NOT NULL,
+                        `productBarcode` TEXT NOT NULL,
+                        `expectedStockAtStart` INTEGER NOT NULL,
+                        `countedStock` INTEGER NOT NULL,
+                        `systemStockAtFinalize` INTEGER,
+                        `difference` INTEGER NOT NULL,
+                        `changedDuringSession` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL
+                    )
+                """.trimIndent())
+
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_take_items_sessionId` ON `stock_take_items` (`sessionId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_take_items_productId` ON `stock_take_items` (`productId`)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -200,7 +271,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "gildar_gold_shop.db"
                 )
-                .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .fallbackToDestructiveMigration()
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
                 INSTANCE = instance
@@ -209,3 +281,4 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
+

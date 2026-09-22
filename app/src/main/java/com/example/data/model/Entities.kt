@@ -130,6 +130,41 @@ data class Product(
     }
 
     fun calculateAssetValue(
+        dailyPrice18k: BigDecimal,
+        rateGold24k: BigDecimal,
+        rateGoldMelted: BigDecimal,
+        rateGoldOunce: BigDecimal,
+        rateCoin1g: BigDecimal,
+        rateCoinQuarter: BigDecimal,
+        rateCoinHalf: BigDecimal,
+        rateCoinEmami: BigDecimal,
+        rateCoinBahar: BigDecimal,
+        rateCurrencyUsd: BigDecimal,
+        rateCurrencyTether: BigDecimal,
+        rateCurrencyEur: BigDecimal,
+        rateCurrencyAed: BigDecimal,
+        rateCurrencyGbp: BigDecimal,
+        taxRate: BigDecimal
+    ): BigDecimal {
+        return when (category) {
+            "طلای ۲۴ عیار" -> weightGram.multiply(rateGold24k)
+            "طلای آبشده نقدی" -> weightGram.multiply(rateGoldMelted)
+            "انس جهانی طلا" -> weightGram.multiply(rateGoldOunce).multiply(rateCurrencyUsd)
+            "سکه یک گرمی" -> rateCoin1g
+            "ربع سکه" -> rateCoinQuarter
+            "نیم سکه" -> rateCoinHalf
+            "سکه امامی" -> rateCoinEmami
+            "سکه بهار آزادی" -> rateCoinBahar
+            "دلار آمریکا" -> weightGram.multiply(rateCurrencyUsd)
+            "دلار تتر" -> weightGram.multiply(rateCurrencyTether)
+            "یورو" -> weightGram.multiply(rateCurrencyEur)
+            "درهم امارات" -> weightGram.multiply(rateCurrencyAed)
+            "پوند انگلیس" -> weightGram.multiply(rateCurrencyGbp)
+            else -> estimatePrice(dailyPrice18k, taxRate)
+        }
+    }
+
+    fun calculateAssetValue(
         dailyPrice18k: Double,
         rateGold24k: Double,
         rateGoldMelted: Double,
@@ -146,23 +181,23 @@ data class Product(
         rateCurrencyGbp: Double,
         taxRate: Double
     ): Double {
-        val w = weightGram.toDouble()
-        return when (category) {
-            "طلای ۲۴ عیار" -> w * rateGold24k
-            "طلای آبشده نقدی" -> w * rateGoldMelted
-            "انس جهانی طلا" -> w * (rateGoldOunce * rateCurrencyUsd)
-            "سکه یک گرمی" -> rateCoin1g
-            "ربع سکه" -> rateCoinQuarter
-            "نیم سکه" -> rateCoinHalf
-            "سکه امامی" -> rateCoinEmami
-            "سکه بهار آزادی" -> rateCoinBahar
-            "دلار آمریکا" -> w * rateCurrencyUsd
-            "دلار تتر" -> w * rateCurrencyTether
-            "یورو" -> w * rateCurrencyEur
-            "درهم امارات" -> w * rateCurrencyAed
-            "پوند انگلیس" -> w * rateCurrencyGbp
-            else -> estimatePrice(dailyPrice18k, taxRate)
-        }
+        return calculateAssetValue(
+            BigDecimal.valueOf(dailyPrice18k),
+            BigDecimal.valueOf(rateGold24k),
+            BigDecimal.valueOf(rateGoldMelted),
+            BigDecimal.valueOf(rateGoldOunce),
+            BigDecimal.valueOf(rateCoin1g),
+            BigDecimal.valueOf(rateCoinQuarter),
+            BigDecimal.valueOf(rateCoinHalf),
+            BigDecimal.valueOf(rateCoinEmami),
+            BigDecimal.valueOf(rateCoinBahar),
+            BigDecimal.valueOf(rateCurrencyUsd),
+            BigDecimal.valueOf(rateCurrencyTether),
+            BigDecimal.valueOf(rateCurrencyEur),
+            BigDecimal.valueOf(rateCurrencyAed),
+            BigDecimal.valueOf(rateCurrencyGbp),
+            BigDecimal.valueOf(taxRate)
+        ).toDouble()
     }
 }
 
@@ -357,4 +392,65 @@ data class RepairWithCustomer(
         entityColumn = "id"
     )
     val customer: Customer?
+)
+
+@Entity(tableName = "daily_closings")
+data class DailyClosing(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val businessDateKey: String, // e.g., "2026-09-21"
+    val closedAt: Long = System.currentTimeMillis(),
+    val displayedPersianDate: String, // e.g., "1405/06/31"
+    val displayedGregorianDate: String, // e.g., "2026/09/21"
+    val invoiceCount: Int,
+    val salesTotal: BigDecimal,
+    val paidTotal: BigDecimal,
+    val installmentCreatedTotal: BigDecimal,
+    val installmentCreatedCount: Int,
+    val installmentCollectedTotal: BigDecimal,
+    val overdueInstallmentCount: Int,
+    val inventoryPieceCount: Int,
+    val inventoryWeight: BigDecimal,
+    val inventoryValue: BigDecimal,
+    val lowStockCount: Int,
+    val openRepairsCount: Int,
+    val readyRepairsCount: Int,
+    val goldRateAtClose: BigDecimal,
+    val optionalPhysicalCash: BigDecimal? = null,
+    val optionalPhysicalGoldWeight: BigDecimal? = null,
+    val optionalNotes: String? = null,
+    val status: String = "CLOSED", // "CLOSED", "REOPENED"
+    val revision: Int = 1
+)
+
+@Entity(tableName = "stock_take_sessions")
+data class StockTakeSession(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val startedAt: Long = System.currentTimeMillis(),
+    val completedAt: Long? = null,
+    val status: String = "IN_PROGRESS", // "IN_PROGRESS", "COMPLETED", "CANCELLED"
+    val notes: String? = null,
+    val totalExpectedPieces: Int = 0,
+    val totalCountedPieces: Int = 0
+)
+
+@Entity(
+    tableName = "stock_take_items",
+    indices = [
+        androidx.room.Index(value = ["sessionId"]),
+        androidx.room.Index(value = ["productId"])
+    ]
+)
+data class StockTakeItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: Long,
+    val productId: Int,
+    val productName: String,
+    val productCategory: String,
+    val productBarcode: String,
+    val expectedStockAtStart: Int,
+    val countedStock: Int = 0,
+    val systemStockAtFinalize: Int? = null,
+    val difference: Int = 0, // countedStock - expectedStockAtStart
+    val changedDuringSession: Boolean = false,
+    val status: String = "PENDING" // "PENDING", "MATCHED", "DISCREPANCY", "NEEDS_REVIEW", "ADJUSTED"
 )

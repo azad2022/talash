@@ -17,13 +17,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
-import com.example.data.repository.ShopRepository
+import com.example.data.repository.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.security.MessageDigest
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -41,11 +43,16 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     fun toggleDashboardValuesVisibility() {
         isDashboardValuesHidden = !isDashboardValuesHidden
     }
-    private val _isAuthenticated = MutableStateFlow(false)
+    private val _isAuthenticated = MutableStateFlow(true)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
 
-    private val _isPinSetupRequired = MutableStateFlow(true)
+    private val _isPinSetupRequired = MutableStateFlow(false)
     val isPinSetupRequired: StateFlow<Boolean> = _isPinSetupRequired.asStateFlow()
+
+    fun skipPinSetup() {
+        _isAuthenticated.value = true
+        _isPinSetupRequired.value = false
+    }
 
     // --- STATE FLOWS FROM DB ---
     val userConfig: StateFlow<User?> = repository.userConfig.stateIn(
@@ -316,9 +323,29 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 
-    fun deleteCustomer(customer: Customer) {
+    var customerActionErrorMessage by mutableStateOf<String?>(null)
+
+    fun deleteCustomer(customer: Customer, onError: (String) -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteCustomer(customer)
+            try {
+                repository.deleteCustomer(customer)
+                customerActionErrorMessage = null
+            } catch (e: Exception) {
+                val msg = e.message ?: "خطا در حذف مشتری"
+                customerActionErrorMessage = msg
+                onError(msg)
+            }
+        }
+    }
+
+    fun cancelInvoice(invoice: SaleInvoice, onSuccess: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.deleteInvoice(invoice)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "خطا در ابطال فاکتور")
+            }
         }
     }
 
@@ -989,25 +1016,177 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     }
 
     // --- CURRENCY & NUMBER STRING FORMATTERS (Persian localized) ---
-    fun formatCurrency(amount: BigDecimal): String = formatCurrency(amount.toDouble())
-
-    fun formatCurrency(amount: Double): String {
+    fun formatCurrency(amount: BigDecimal): String {
         return try {
             val format = NumberFormat.getInstance(Locale("fa", "IR"))
-            format.format(amount.toLong())
+            format.format(amount.setScale(0, RoundingMode.HALF_UP).toBigInteger())
         } catch (e: Exception) {
-            String.format("%,.0f", amount)
+            try {
+                val format = NumberFormat.getInstance(Locale("fa", "IR"))
+                format.format(amount)
+            } catch (ex: Exception) {
+                amount.setScale(0, RoundingMode.HALF_UP).toPlainString()
+            }
         }
     }
 
-    fun formatWeight(weight: BigDecimal): String = formatWeight(weight.toDouble())
+    fun formatCurrency(amount: Double): String = formatCurrency(BigDecimal.valueOf(amount))
 
-    fun formatWeight(weight: Double): String {
-        return String.format("%.3f", weight)
+    fun formatWeight(weight: BigDecimal): String {
+        return try {
+            val format = NumberFormat.getInstance(Locale("fa", "IR"))
+            format.minimumFractionDigits = 3
+            format.maximumFractionDigits = 3
+            format.format(weight)
+        } catch (e: Exception) {
+            weight.setScale(3, RoundingMode.HALF_UP).toPlainString()
+        }
     }
+
+    fun formatWeight(weight: Double): String = formatWeight(BigDecimal.valueOf(weight))
 
     private fun hashString(input: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    // --- DAILY CLOSING ---
+    val dailyClosings: StateFlow<List<DailyClosing>> = repository.dailyClosings.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    private val _todaySummaryPreview = MutableStateFlow<TodaySummaryPreview?>(null)
+    val todaySummaryPreview: StateFlow<TodaySummaryPreview?> = _todaySummaryPreview.asStateFlow()
+
+    private val _isDailyClosingLoading = MutableStateFlow(false)
+    val isDailyClosingLoading: StateFlow<Boolean> = _isDailyClosingLoading.asStateFlow()
+
+    fun loadTodaySummaryPreview() {
+        viewModelScope.launch {
+            _isDailyClosingLoading.value = true
+            try {
+                val preview = repository.getTodaySummaryPreview()
+                _todaySummaryPreview.value = preview
+            } finally {
+                _isDailyClosingLoading.value = false
+            }
+        }
+    }
+
+    fun closeDay(
+        physicalCash: BigDecimal?,
+        physicalGoldWeight: BigDecimal?,
+        notes: String?,
+        onComplete: (Result<DailyClosing>) -> Unit
+    ) {
+        val currentPreview = _todaySummaryPreview.value
+        if (currentPreview == null) {
+            onComplete(Result.failure(IllegalStateException("خلاصه روز هنوز بارگذاری نشده است")))
+            return
+        }
+        viewModelScope.launch {
+            val res = repository.closeDay(currentPreview, physicalCash, physicalGoldWeight, notes)
+            if (res.isSuccess) {
+                loadTodaySummaryPreview()
+            }
+            onComplete(res)
+        }
+    }
+
+    fun reopenDay(closingId: Long, reason: String, onComplete: (Result<DailyClosing>) -> Unit) {
+        viewModelScope.launch {
+            val res = repository.reopenDay(closingId, reason)
+            if (res.isSuccess) {
+                loadTodaySummaryPreview()
+            }
+            onComplete(res)
+        }
+    }
+
+    // --- STOCK TAKE (BARCODE AUDIT) ---
+    val activeStockTakeSession: StateFlow<StockTakeSession?> = repository.activeStockTakeSession.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
+
+    val stockTakeSessions: StateFlow<List<StockTakeSession>> = repository.stockTakeSessions.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    private val _currentStockTakeItems = MutableStateFlow<List<StockTakeItem>>(emptyList())
+    val currentStockTakeItems: StateFlow<List<StockTakeItem>> = _currentStockTakeItems.asStateFlow()
+
+    private var stockTakeItemsJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            activeStockTakeSession.collect { session ->
+                stockTakeItemsJob?.cancel()
+                if (session != null) {
+                    stockTakeItemsJob = viewModelScope.launch {
+                        repository.getStockTakeItems(session.id).collect { items ->
+                            _currentStockTakeItems.value = items
+                        }
+                    }
+                } else {
+                    _currentStockTakeItems.value = emptyList()
+                }
+            }
+        }
+    }
+
+    fun startStockTakeSession(notes: String? = null, onComplete: (Result<StockTakeSession>) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = repository.startStockTakeSession(notes)
+            onComplete(res)
+        }
+    }
+
+    fun scanBarcodeForStockTake(barcode: String, onResult: (StockTakeScanResult) -> Unit = {}) {
+        val active = activeStockTakeSession.value ?: return
+        viewModelScope.launch {
+            val res = repository.scanBarcodeForStockTake(active.id, barcode)
+            res.getOrNull()?.let { onResult(it) }
+        }
+    }
+
+    fun undoLastStockTakeScan(productId: Int) {
+        val active = activeStockTakeSession.value ?: return
+        viewModelScope.launch {
+            repository.undoLastStockTakeScan(active.id, productId)
+        }
+    }
+
+    fun manualUpdateStockTakeItemCount(productId: Int, newCount: Int) {
+        val active = activeStockTakeSession.value ?: return
+        viewModelScope.launch {
+            repository.manualUpdateStockTakeItemCount(active.id, productId, newCount)
+        }
+    }
+
+    fun prepareStockTakeReview(sessionId: Long, onComplete: (Result<List<StockTakeItem>>) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = repository.prepareReconciliationReview(sessionId)
+            onComplete(res)
+        }
+    }
+
+    fun applyStockTakeAdjustments(sessionId: Long, onComplete: (Result<StockTakeApplyResult>) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = repository.applyStockTakeAdjustments(sessionId)
+            onComplete(res)
+        }
+    }
+
+    fun cancelStockTakeSession(sessionId: Long, onComplete: (Result<Unit>) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = repository.cancelStockTakeSession(sessionId)
+            onComplete(res)
+        }
     }
 }

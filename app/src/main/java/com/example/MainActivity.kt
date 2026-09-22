@@ -68,14 +68,6 @@ class ShopViewModelFactory(
 }
 
 class MainActivity : ComponentActivity() {
-    override fun attachBaseContext(newBase: android.content.Context?) {
-        if (newBase != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            super.attachBaseContext(newBase.createAttributionContext("default"))
-        } else {
-            super.attachBaseContext(newBase)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -85,11 +77,8 @@ class MainActivity : ComponentActivity() {
                 val view = androidx.compose.ui.platform.LocalView.current
                 if (!view.isInEditMode) {
                     SideEffect {
-                        val window = (view.context as android.app.Activity).window
-                        window.statusBarColor = android.graphics.Color.TRANSPARENT
-                        window.navigationBarColor = android.graphics.Color.TRANSPARENT
-
-                        val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
+                        val activityWindow = this@MainActivity.window
+                        val controller = androidx.core.view.WindowCompat.getInsetsController(activityWindow, view)
                         controller.isAppearanceLightStatusBars = ThemeConfig.isLightMode
                         controller.isAppearanceLightNavigationBars = ThemeConfig.isLightMode
                     }
@@ -388,6 +377,8 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
             containerColor = Color.Transparent
         ) { paddingValues ->
             val menuItems = listOf(
+                Triple("بستن روز طلافروشی", Icons.Filled.LockClock, "daily_closing"),
+                Triple("انبارگردانی با بارکد", Icons.Filled.QrCodeScanner, "stock_take"),
                 Triple("پشتیبان‌گیری و بازیابی", Icons.Filled.Backup, "backup_restore"),
                 Triple("خرید پلاگین", Icons.Filled.Extension, "plugins"),
                 Triple("سفارش تعمیر", Icons.Filled.Handyman, "repairs"),
@@ -433,6 +424,14 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
                         onNavigateToTab = { activeTab = it }
                     )
                     "customers" -> CustomersScreen(viewModel = viewModel)
+                    "daily_closing" -> com.example.ui.screens.closing.DailyClosingScreen(
+                        viewModel = viewModel,
+                        onBack = { activeTab = "home" }
+                    )
+                    "stock_take" -> com.example.ui.screens.stocktake.StockTakeScreen(
+                        viewModel = viewModel,
+                        onBack = { activeTab = "home" }
+                    )
                     "backup_restore" -> com.example.ui.screens.backup.BackupRestoreScreen(
                         viewModel = viewModel,
                         onBack = { activeTab = "home" }
@@ -484,8 +483,8 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
                     menuItems.forEachIndexed { index, (label, icon, route) ->
                         val isSelected = activeTab == route
 
-                        // Stack vertically: index 5 (Help) at bottom, index 0 (Plugins) at top
-                        val targetY = - ((5 - index) * 52).dp
+                        // Stack vertically dynamic with item count
+                        val targetY = - ((menuItems.size - 1 - index) * 48).dp
 
                         // Clean entrance movement: slide upwards slightly and fade/scale
                         val currentY = -20.dp + (targetY + 20.dp) * animFraction
@@ -577,7 +576,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Item 1: More (بیشتر)
-            val isMoreActive = isFloatingMenuExpanded || activeTab in listOf("plugins", "repairs", "reports", "audit_logs", "settings", "help")
+            val isMoreActive = isFloatingMenuExpanded || activeTab in listOf("daily_closing", "stock_take", "backup_restore", "plugins", "repairs", "reports", "audit_logs", "settings", "help")
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,

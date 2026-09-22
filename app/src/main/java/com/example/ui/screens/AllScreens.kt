@@ -676,6 +676,72 @@ fun DashboardScreen(
             }
         }
 
+        // Quick Operations Row (Daily Closing & Stocktake)
+        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(this.maxLineSpan) }) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToTab("daily_closing") },
+                    colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                    border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(SmokyBronze),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.LockClock, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(20.dp))
+                        }
+                        Column {
+                            Text("بستن روز", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("محاسبه و بستن حساب", color = TextGray, fontSize = 10.sp)
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToTab("stock_take") },
+                    colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                    border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(SmokyBronze),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(20.dp))
+                        }
+                        Column {
+                            Text("انبارگردانی", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("تطبیق بارکد و موجودی", color = TextGray, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         // Action Notifications Center (Alerts Styled with design instructions)
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(this.maxLineSpan) }) {
             if (lowStockCount > 0 || readyRepairs.isNotEmpty() || overdueInstallments.isNotEmpty()) {
@@ -3085,17 +3151,42 @@ fun CustomersScreen(
                                 }
                             }
 
-                            Button(
-                                onClick = {
-                                    viewModel.deleteCustomer(c)
-                                    selectedCustomerDetail = null
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 10.dp)
-                            ) {
-                                Text("حذف کلی پرونده مشتری", color = TextWhite)
+                            val customerInvoices = viewModel.invoices.value.filter { it.invoice.customerId == c.id }
+                            if (customerInvoices.isNotEmpty()) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp),
+                                    colors = CardDefaults.cardColors(containerColor = SmokyBronze),
+                                    border = BorderStroke(1.dp, CharcoalBorder)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Shield, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(20.dp))
+                                        Text(
+                                            text = "این مشتری دارای ${customerInvoices.size} فقره فاکتور ثبت‌شده است. به جهت حفظ اسناد مالی و قوانین حسابداری طلافروشی، حذف این پرونده غیرمجاز است.",
+                                            color = TextWhite,
+                                            fontSize = 11.sp,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        viewModel.deleteCustomer(c)
+                                        selectedCustomerDetail = null
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp)
+                                ) {
+                                    Text("حذف کلی پرونده مشتری", color = TextWhite)
+                                }
                             }
                         }
                     }
@@ -3515,8 +3606,10 @@ fun ReportsScreen(
 
         // FINANCIAL REPORT PANEL
         val invoices = viewModel.invoices.collectAsState().value
-        val totalSales = invoices.sumOf { it.invoice.totalAmount }
+        val activeInvoices = invoices.filter { !it.invoice.paymentType.startsWith("CANCELLED") }
+        val totalSales = activeInvoices.sumOf { it.invoice.totalAmount }
         val completedInstPayments = viewModel.installments.collectAsState().value.filter { it.paid }.sumOf { it.amount }
+        var invoiceToCancel by remember { mutableStateOf<InvoiceWithDetails?>(null) }
         
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -3710,20 +3803,37 @@ fun ReportsScreen(
                 }
             } else {
                 items(invoices) { itemWC ->
+                    val isCancelled = itemWC.invoice.paymentType.startsWith("CANCELLED")
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = SmokyCard),
-                        border = BorderStroke(1.dp, CharcoalBorder)
+                        border = BorderStroke(1.dp, if (isCancelled) Color(0xFFFF5252).copy(alpha = 0.5f) else CharcoalBorder)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                Text("سند فاکتور شماره: ${itemWC.invoice.id}", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("سند فاکتور شماره: ${itemWC.invoice.id}", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    if (isCancelled) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFFFF5252).copy(alpha = 0.2f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("ابطال‌شده", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
                                 Text(
                                     text = "${viewModel.formatCurrency(itemWC.invoice.totalAmount)} تومان",
-                                    color = MetallicGold,
+                                    color = if (isCancelled) TextGray else MetallicGold,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -3742,23 +3852,78 @@ fun ReportsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("نوع تسویه: ${if (itemWC.invoice.paymentType == "CASH") "تماماً نقدی" else "قسط بندی شده"}", color = TextWhite, fontSize = 11.sp)
+                                val paymentLabel = when {
+                                    itemWC.invoice.paymentType.startsWith("CANCELLED") -> "باطل شده"
+                                    itemWC.invoice.paymentType == "CASH" -> "تماماً نقدی"
+                                    else -> "قسط بندی شده"
+                                }
+                                Text("نوع تسویه: $paymentLabel", color = TextWhite, fontSize = 11.sp)
                                 
-                                Button(
-                                    onClick = { viewModel.queueInvoicePrintReceipt(context, itemWC) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = SmokyBronze),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.height(30.dp)
-                                ) {
-                                    Icon(Icons.Filled.Print, contentDescription = "رسید چاپی", tint = MetallicGold, modifier = Modifier.size(12.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("چاپ فیش", fontSize = 9.sp, color = MetallicGold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (!isCancelled) {
+                                        OutlinedButton(
+                                            onClick = { invoiceToCancel = itemWC },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
+                                            border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.height(30.dp)
+                                        ) {
+                                            Text("ابطال فاکتور", fontSize = 9.sp, color = Color(0xFFFF5252))
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = { viewModel.queueInvoicePrintReceipt(context, itemWC) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = SmokyBronze),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Print, contentDescription = "رسید چاپی", tint = MetallicGold, modifier = Modifier.size(12.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("چاپ فیش", fontSize = 9.sp, color = MetallicGold)
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Void Invoice Confirmation Dialog
+        invoiceToCancel?.let { invWC ->
+            AlertDialog(
+                onDismissRequest = { invoiceToCancel = null },
+                title = { Text("ابطال رسمی فاکتور شماره ${invWC.invoice.id}", color = Color(0xFFFF5252), fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        text = "آیا از ابطال این فاکتور اطمینان دارید؟\nسند فاکتور جهت حفظ دقیق سوابق مالی و ممیزی صنف طلا در سیستم باقی می‌ماند اما باطل اعلام می‌شود و موجودی اقلام فاکتور به انبار برگردانده خواهد شد.",
+                        color = TextWhite,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.cancelInvoice(
+                                invoice = invWC.invoice,
+                                onSuccess = { invoiceToCancel = null }
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252), contentColor = TextWhite)
+                    ) {
+                        Text("بله، ابطال فاکتور")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { invoiceToCancel = null }) {
+                        Text("انصراف", color = TextGray)
+                    }
+                },
+                containerColor = SmokyCard,
+                shape = RoundedCornerShape(16.dp)
+            )
         }
     }
 }
