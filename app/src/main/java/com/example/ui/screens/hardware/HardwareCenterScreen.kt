@@ -89,7 +89,6 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
     val stableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
     val connectedDevices by viewModel.hardwareConnectedDevices.collectAsState()
     val hardwareLastError by viewModel.hardwareLastError.collectAsState()
-    val connectedDeviceTypes = connectedDevices.keys
 
     Scaffold(
         topBar = {
