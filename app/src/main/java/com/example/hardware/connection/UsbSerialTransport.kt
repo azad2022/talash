@@ -9,7 +9,6 @@ import com.example.hardware.core.HardwareTransport
 import com.example.hardware.core.SerialConnectionSettings
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +16,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -29,6 +29,7 @@ class UsbSerialTransport(
     override val state: StateFlow<HardwareConnectionState> = _state
     private val incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 32)
     private var port: UsbSerialPort? = null
+    private var readerJob: Job? = null
 
     override suspend fun connect(device: HardwareDevice): HardwareResult<Unit> {
         val deviceId = device.id.toIntOrNull()
@@ -74,6 +75,8 @@ class UsbSerialTransport(
     }
 
     override suspend fun disconnect() {
+        readerJob?.cancel()
+        readerJob = null
         closeQuietly()
         _state.value = HardwareConnectionState.DISCONNECTED
     }
@@ -95,7 +98,8 @@ class UsbSerialTransport(
     override fun incomingBytes(): Flow<ByteArray> = incoming
 
     private fun startReader(activePort: UsbSerialPort) {
-        CoroutineScope(Dispatchers.IO).launch {
+        readerJob?.cancel()
+        readerJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             val buffer = ByteArray(4096)
             try {
                 while (currentCoroutineContext().isActive && _state.value == HardwareConnectionState.CONNECTED) {
