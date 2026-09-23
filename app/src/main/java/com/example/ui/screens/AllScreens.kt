@@ -3787,6 +3787,7 @@ fun ReportsScreen(
                 var footerInput by remember { mutableStateOf(prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم.") }
                 var addressInput by remember { mutableStateOf(prefs.getString("receipt_address", "آدرس: گالری اصلی طلا، تهران") ?: "آدرس: گالری اصلی طلا، تهران") }
                 
+                                var paperWidthMm by remember { mutableStateOf(prefs.getInt("receipt_paper_mm", 80)) }
                 var isExpanded by remember { mutableStateOf(false) }
 
                 Card(
@@ -3883,9 +3884,9 @@ fun ReportsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 listOf(58 to "۵۸ میلی‌متر", 80 to "۸۰ میلی‌متر").forEach { (mm, label) ->
-                                    val selected = prefs.getInt("receipt_paper_mm", 80) == mm
+                                    val selected = paperWidthMm == mm
                                     Button(
-                                        onClick = { prefs.edit().putInt("receipt_paper_mm", mm).apply() },
+                                        onClick = { paperWidthMm = mm },
                                         modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (selected) MetallicGold else SmokyBronze,
@@ -3944,6 +3945,7 @@ fun ReportsScreen(
                                         .putString("receipt_title", titleInput)
                                         .putString("receipt_footer", footerInput)
                                         .putString("receipt_address", addressInput)
+                                        .putInt("receipt_paper_mm", paperWidthMm)
                                         .apply()
                                     Toast.makeText(context, "طراحی رسید اختصاصی شما با موفقیت ذخیره شد", Toast.LENGTH_SHORT).show()
                                     isExpanded = false
