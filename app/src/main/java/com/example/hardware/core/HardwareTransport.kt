@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface HardwareTransport {
     val state: StateFlow<HardwareConnectionState>
     suspend fun connect(device: HardwareDevice): HardwareResult<Unit>
-    suspend fun disconnect()
+    fun disconnect()
     suspend fun write(bytes: ByteArray): HardwareResult<Unit>
     fun incomingBytes(): Flow<ByteArray>
 }
