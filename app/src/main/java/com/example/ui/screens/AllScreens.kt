@@ -4569,7 +4569,7 @@ fun PrinterReceiptSimulatorDialog(
                 ) {
                     Button(
                         onClick = {
-                            viewModel.printReceiptTextToHardware(editedPayload) { result ->
+                            viewModel.printReceiptRasterToHardware(editedPayload) { result ->
                                 when (result) {
                                     is com.example.hardware.core.HardwareResult.Success -> {
                                         Toast.makeText(context, "ارسال رسید به چاپگر با موفقیت انجام شد.", Toast.LENGTH_SHORT).show()
