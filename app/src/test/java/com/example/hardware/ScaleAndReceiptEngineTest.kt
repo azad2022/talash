@@ -55,6 +55,40 @@ class ScaleAndReceiptEngineTest {
     }
 
     @Test
+    fun receipt_uses_sale_item_snapshot_when_product_is_missing() {
+        val invoice = InvoiceWithDetails(
+            invoice = SaleInvoice(
+                id = 11,
+                customerId = 0,
+                totalAmount = BigDecimal("70000000"),
+                discount = BigDecimal.ZERO,
+                tax = BigDecimal.ZERO,
+                paidAmount = BigDecimal("70000000"),
+                paymentType = "CASH"
+            ),
+            customer = null,
+            items = listOf(
+                SaleItem(
+                    invoiceId = 11,
+                    productId = 999,
+                    quantity = 1,
+                    unitPrice = BigDecimal("70000000"),
+                    total = BigDecimal("70000000"),
+                    customWeight = BigDecimal("3.41"),
+                    customName = "انگشتر آرشیوی",
+                    customKarat = 22
+                )
+            ),
+            installments = emptyList()
+        )
+
+        val receipt = ReceiptFormatter.format(invoice, emptyMap())
+        assertTrue(receipt.contains("انگشتر آرشیوی"))
+        assertTrue(receipt.contains("عیار: 22"))
+        assertTrue(receipt.contains("3.41"))
+    }
+
+    @Test
     fun receipt_uses_product_karat_and_item_weight() {
         val product = Product(
             id = 42,
