@@ -32,21 +32,29 @@ class StableWeightDetector(
     private val requiredStableSamples: Int = 4
 ) {
     private val recent = ArrayDeque<BigDecimal>()
+    private var stableSinceMs = 0L
 
-    fun reset() { recent.clear() }
+    fun reset() {
+        recent.clear()
+        stableSinceMs = 0L
+    }
 
-    fun addSample(value: BigDecimal): StableWeight? {
+    fun addSample(value: BigDecimal, nowMs: Long = System.currentTimeMillis()): StableWeight? {
         recent.addLast(value)
         while (recent.size > requiredStableSamples) recent.removeFirst()
         if (recent.size < requiredStableSamples) return null
 
         val min = recent.minOrNull() ?: return null
         val max = recent.maxOrNull() ?: return null
-        if (max.subtract(min).abs() > toleranceGrams) return null
+        if (max.subtract(min).abs() > toleranceGrams) {
+            stableSinceMs = 0L
+            return null
+        }
+        if (stableSinceMs == 0L) stableSinceMs = nowMs
 
         val average = recent.fold(BigDecimal.ZERO, BigDecimal::add)
             .divide(BigDecimal.valueOf(recent.size.toLong()), 3, RoundingMode.HALF_UP)
 
-        return StableWeight(average, 0L, recent.size)
+        return StableWeight(average, nowMs - stableSinceMs, recent.size)
     }
 }
