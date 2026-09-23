@@ -72,8 +72,7 @@ class ShopViewModelFactory(
 
 class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        HardwareBarcodeBus.onKeyEvent(event)
-        return super.dispatchKeyEvent(event)
+        return if (HardwareBarcodeBus.onKeyEvent(event)) true else super.dispatchKeyEvent(event)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
