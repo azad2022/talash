@@ -868,11 +868,12 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     fun printProductLabelToHardware(
         product: Product,
         protocol: LabelPrinterProtocol = LabelPrinterProtocol.ZPL,
+        dpi: Int = 203,
         onResult: (HardwareResult<Unit>) -> Unit = {}
     ) {
         val barcode = com.example.domain.util.BarcodeResolver.getCanonicalBarcode(product)
         val bytes = when (protocol) {
-            LabelPrinterProtocol.ZPL -> GoldLabelZplEncoder.encode(product, barcode)
+            LabelPrinterProtocol.ZPL -> GoldLabelZplEncoder.encode(product, barcode, dpi = dpi.coerceIn(203, 300))
             LabelPrinterProtocol.ESC_POS_RASTER -> EscPosEncoder.encodeText(GoldLabelFormatter.text(product, barcode))
         }
         hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, bytes, onResult)
