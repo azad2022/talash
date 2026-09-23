@@ -186,7 +186,7 @@ class HardwareManager(
         }
     }
 
-    suspend fun disconnect() {
+    fun disconnect() {
         readerJob?.cancel()
         readerJob = null
         transportStateJob?.cancel()
