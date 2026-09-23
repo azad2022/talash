@@ -868,6 +868,10 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         hardwareManager?.disconnect()
     }
 
+    fun disconnectHardware(type: HardwareDeviceType) {
+        hardwareManager?.disconnect(type)
+    }
+
     fun printReceiptTextToHardware(payload: String, onResult: (HardwareResult<Unit>) -> Unit = {}) {
         if (payload.isBlank()) {
             onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
