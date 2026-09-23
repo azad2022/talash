@@ -2768,33 +2768,57 @@ fun InvoiceScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text("صندوق ثبت فاکتور لوکس فروشگاهی", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-                    Text("صورت حساب رسمی، تخفیف، انتخاب نوع تسویه نقدی و اقساطی", style = MaterialTheme.typography.bodySmall, color = TextGray)
-                }
-                
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { isInvoiceScannerOpen = true },
-
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MetallicGold.copy(0.12f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.QrCode,
-                        contentDescription = "اسکن با دوربین",
-                        tint = MetallicGold,
-                        modifier = Modifier.size(22.dp)
+                    Text(
+                        "صندوق ثبت فاکتور لوکس فروشگاهی",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MetallicGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "صورت حساب رسمی، تخفیف، انتخاب نوع تسویه نقدی و اقساطی",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextGray
                     )
                 }
-                IconButton(onClick = { hardwareScannerEnabled = !hardwareScannerEnabled }) {
-                    Text(if (hardwareScannerEnabled) "HID" else "HID", color = if (hardwareScannerEnabled) StatusGreen else TextGray, fontSize = 9.sp)
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { hardwareScannerEnabled = !hardwareScannerEnabled },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (hardwareScannerEnabled) StatusGreen.copy(alpha = 0.14f)
+                                else SmokyBronze
+                            )
+                    ) {
+                        Text(
+                            "HID",
+                            color = if (hardwareScannerEnabled) StatusGreen else TextGray,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { isInvoiceScannerOpen = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MetallicGold.copy(0.12f))
+                    ) {
+                        Icon(
+                            Icons.Filled.QrCode,
+                            contentDescription = "اسکن با دوربین",
+                            tint = MetallicGold,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
-        }
-
-
 
         // A. Customer Selector Card
         item {
