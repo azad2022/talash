@@ -7,9 +7,11 @@ import com.example.data.database.AppDatabase
 import com.example.data.database.ShopDao
 import com.example.data.model.Customer
 import com.example.data.model.Product
+import com.example.data.model.Repair
 import com.example.data.model.SaleInvoice
 import com.example.data.model.SaleItem
 import com.example.data.repository.ShopRepository
+import com.example.data.repository.StockTakeScanResult
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -435,5 +437,125 @@ class DailyClosingAndStockTakeIntegrityTest {
         // Finalize succeeds
         val applySuccess = repository.applyStockTakeAdjustments(session.id)
         assertTrue(applySuccess.isSuccess)
+    }
+
+    @Test
+    fun `stale preview followed by new invoice creates closing with authoritative live recalculation`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "النگو پهن", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", stock = 10)).toInt()
+
+        // 1. Initial invoice
+        val invoice1 = SaleInvoice(customerId = customerId, totalAmount = 1000.0, discount = 0.0, tax = 0.0, paidAmount = 1000.0, paymentType = "CASH")
+        val items1 = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 1000.0, total = 1000.0))
+        repository.createInvoice(invoice1, items1, emptyList())
+
+        // 2. Obtain preview snapshot (invoiceCount = 1, salesTotal = 1000)
+        val stalePreview = repository.getTodaySummaryPreview()
+        assertEquals(1, stalePreview.invoiceCount)
+        assertEquals(BigDecimal("1000.0"), stalePreview.salesTotal)
+
+        // 3. New invoice is created concurrently before user clicks closeDay
+        val invoice2 = SaleInvoice(customerId = customerId, totalAmount = 2500.0, discount = 0.0, tax = 0.0, paidAmount = 2500.0, paymentType = "CASH")
+        val items2 = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 2500.0, total = 2500.0))
+        repository.createInvoice(invoice2, items2, emptyList())
+
+        // 4. closeDay is invoked passing the stalePreview
+        val closeRes = repository.closeDay(stalePreview, BigDecimal.ZERO, BigDecimal.ZERO, "بستن روز با پیش‌نمایش قدیمی")
+        assertTrue(closeRes.isSuccess)
+        val closing = closeRes.getOrThrow()
+
+        // 5. Verify authoritative numbers: invoiceCount must be 2, salesTotal must be 3500.0
+        assertEquals(2, closing.invoiceCount)
+        assertEquals(BigDecimal("3500.0"), closing.salesTotal)
+        assertEquals(BigDecimal("3500.0"), closing.paidTotal)
+    }
+
+    @Test
+    fun `closed business day blocks insertRepair updateRepairStatus and deleteRepair`() = runTest {
+        val repair = Repair(
+            customerId = customerId,
+            description = "تعمیر زنجیر شکسته",
+            estimatedCost = 50000.0,
+            upfrontPayment = 10000.0,
+            status = "PENDING_APPROVAL"
+        )
+        val initialRepairId = repository.insertRepair(repair).toInt()
+        assertTrue(initialRepairId > 0)
+
+        // Close day
+        val preview = repository.getTodaySummaryPreview()
+        assertTrue(repository.closeDay(preview, BigDecimal.ZERO, BigDecimal.ZERO, "بستن روز").isSuccess)
+
+        // 1. insertRepair blocked
+        try {
+            repository.insertRepair(repair.copy(description = "تعمیر جدید"))
+            fail("Expected IllegalStateException due to closed business day")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+
+        // 2. updateRepairStatus blocked
+        try {
+            repository.updateRepairStatus(initialRepairId, "READY_FOR_PICKUP")
+            fail("Expected IllegalStateException due to closed business day")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+
+        // 3. deleteRepair blocked
+        val savedRepair = shopDao.getAllRepairsSync().firstOrNull { it.id == initialRepairId }
+        assertNotNull(savedRepair)
+        try {
+            repository.deleteRepair(savedRepair!!)
+            fail("Expected IllegalStateException due to closed business day")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+    }
+
+    @Test
+    fun `undoLastStockTakeScan resets isCounted and status when count drops back to zero`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "النگو ظریف", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "BAR-ZARIF", stock = 3)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+
+        // Scan once
+        val scanRes = repository.scanBarcodeForStockTake(session.id, "BAR-ZARIF").getOrThrow() as StockTakeScanResult.Success
+        assertEquals(1, scanRes.item.countedStock)
+        assertTrue(scanRes.item.isCounted)
+
+        // Undo scan -> count drops to 0, isCounted becomes false
+        val undoRes = repository.undoLastStockTakeScan(session.id, prodId)
+        assertTrue(undoRes.isSuccess)
+        val undoneItem = undoRes.getOrThrow()
+        assertEquals(0, undoneItem.countedStock)
+        assertFalse(undoneItem.isCounted)
+        assertEquals("PENDING", undoneItem.status)
+
+        // Check session totalCountedPieces also decreased
+        val updatedSession = shopDao.getStockTakeSessionById(session.id)
+        assertEquals(0, updatedSession?.totalCountedPieces)
+    }
+
+    @Test
+    fun `scanning ambiguous barcode returns Ambiguous and does not alter count`() = runTest {
+        // Insert two products that could collide or test BarcodeResolver.resolveStockTakeItemExact
+        val prod1 = shopDao.insertProduct(Product(name = "سکه ۱", category = "سکه", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "COIN-X", stock = 1)).toInt()
+        val prod2 = shopDao.insertProduct(Product(name = "سکه ۲", category = "سکه", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "COIN-Y", stock = 1)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+
+        // Manually introduce duplicate barcode in session items to simulate collision
+        val item1 = shopDao.getStockTakeItemByProduct(session.id, prod1)!!
+        shopDao.updateStockTakeItem(item1.copy(productBarcode = "SHARED-BC"))
+        val item2 = shopDao.getStockTakeItemByProduct(session.id, prod2)!!
+        shopDao.updateStockTakeItem(item2.copy(productBarcode = "SHARED-BC"))
+
+        val scanResult = repository.scanBarcodeForStockTake(session.id, "SHARED-BC")
+        assertTrue(scanResult.isSuccess)
+        val result = scanResult.getOrThrow()
+        assertTrue(result is StockTakeScanResult.Ambiguous)
+        val ambiguous = result as StockTakeScanResult.Ambiguous
+        assertEquals("SHARED-BC", ambiguous.barcode)
+        assertEquals(2, ambiguous.matchedProductNames.size)
     }
 }

@@ -707,7 +707,7 @@ fun StockTakeScreen(
     if (showReviewReconciliationDialog && activeSession != null) {
         val session = activeSession!!
         val discrepancies = reviewItemsList.filter {
-            it.status != "MATCHED" && (it.countedStock != it.expectedStockAtStart || it.status == "NEEDS_REVIEW")
+            it.status != "MATCHED" || !it.isCounted || it.status == "NEEDS_REVIEW" || it.status == "NEW_PRODUCT_DURING_SESSION"
         }
 
         val uncountedItems = reviewItemsList.filter { !it.isCounted }
@@ -749,7 +749,7 @@ fun StockTakeScreen(
                             border = BorderStroke(1.dp, Color(0xFFFF9800))
                         ) {
                             Text(
-                                text = "توجه: تعداد ${changedItems.size} قلم کالا در حین انبارگردانی دستخوش تغییر همزمان شده‌اند.",
+                                text = "توجه: تعداد ${changedItems.size} قلم کالا در حین انبارگردانی دستخوش تغییر همزمان یا نیاز به بازبینی شده‌اند.",
                                 color = Color(0xFFFFB300),
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(10.dp),
@@ -759,7 +759,7 @@ fun StockTakeScreen(
                     }
 
                     Text(
-                        text = "خلاصه مغایرت‌های کشف‌شده (${discrepancies.size} قلم دارای مغایرت):",
+                        text = "خلاصه مغایرت‌های کشف‌شده (${discrepancies.size} قلم دارای مغایرت یا بررسی):",
                         color = TextWhite,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
@@ -786,7 +786,7 @@ fun StockTakeScreen(
                         ) {
                             items(discrepancies) { itm ->
                                 val statusText = when {
-                                    itm.status == "NEW_PRODUCT_DURING_SESSION" -> "کالای جدید حین انبارگردانی"
+                                    itm.status == "NEW_PRODUCT_DURING_SESSION" -> if (itm.isCounted) "کالای جدید (شمارش‌شده)" else "کالای جدید (نیازمند شمارش)"
                                     itm.status == "NEEDS_REVIEW" -> "نیازمند بررسی (تغییر در حین انبارگردانی)"
                                     !itm.isCounted -> "شمارش‌نشده"
                                     itm.countedStock < itm.expectedStockAtStart -> "کسری (${itm.expectedStockAtStart - itm.countedStock})"
@@ -813,21 +813,25 @@ fun StockTakeScreen(
                                         Text(itm.productName, color = TextWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         Text("دفتری: ${itm.expectedStockAtStart} | شمارش: ${if (itm.isCounted) itm.countedStock else "---"}", color = TextGray, fontSize = 10.sp)
                                     }
-                                    if (itm.status == "NEW_PRODUCT_DURING_SESSION" || itm.status == "NEEDS_REVIEW") {
-                                        Button(
-                                            onClick = {
-                                                viewModel.resolveStockTakeItemReview(session.id, itm.productId, itm.countedStock) {
-                                                    viewModel.prepareStockTakeReview(session.id) { res ->
-                                                        res.onSuccess { reviewItemsList = it }
+                                    if ((itm.status == "NEW_PRODUCT_DURING_SESSION" || itm.status == "NEEDS_REVIEW")) {
+                                        if (itm.status == "NEW_PRODUCT_DURING_SESSION" && !itm.isCounted) {
+                                            Text("ابتدا شمارش شود", color = Color(0xFFFF9800), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    viewModel.resolveStockTakeItemReview(session.id, itm.productId, itm.countedStock) {
+                                                        viewModel.prepareStockTakeReview(session.id) { res ->
+                                                            res.onSuccess { reviewItemsList = it }
+                                                        }
                                                     }
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = MetallicGold, contentColor = DarkObsidian),
-                                            shape = RoundedCornerShape(6.dp),
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(28.dp)
-                                        ) {
-                                            Text("تأیید مبنا", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = MetallicGold, contentColor = DarkObsidian),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(28.dp)
+                                            ) {
+                                                Text("تأیید مبنا", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     } else {
                                         Text(statusText, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -1079,6 +1083,10 @@ private fun handleScanResult(
         }
         is StockTakeScanResult.NotFound -> {
             callback("کالایی با بارکد ${result.barcode} در انبار یافت نشد!", false)
+        }
+        is StockTakeScanResult.Ambiguous -> {
+            val names = result.matchedProductNames.joinToString("، ")
+            callback("خطای تداخل بارکد: بارکد «${result.barcode}» برای چند کالا مشترک است ($names)!", false)
         }
     }
 }

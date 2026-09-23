@@ -3,6 +3,18 @@ package com.example.domain.util
 import com.example.data.model.Product
 import com.example.data.model.StockTakeItem
 
+sealed class ProductResolution {
+    data class Single(val product: Product) : ProductResolution()
+    data class Ambiguous(val barcode: String, val products: List<Product>) : ProductResolution()
+    object NotFound : ProductResolution()
+}
+
+sealed class StockTakeItemResolution {
+    data class Single(val item: StockTakeItem) : StockTakeItemResolution()
+    data class Ambiguous(val barcode: String, val items: List<StockTakeItem>) : StockTakeItemResolution()
+    object NotFound : StockTakeItemResolution()
+}
+
 object BarcodeResolver {
 
     /**
@@ -20,84 +32,120 @@ object BarcodeResolver {
     }
 
     /**
-     * Resolves an input barcode string against a list of products.
-     * Priority 1: Exact match with customBarcode (non-blank, case-insensitive).
-     * Priority 2: System generated internal format G-xxxxxx -> resolved to productId.
-     * Priority 3: Direct productId match if the input is a valid integer.
+     * Finds collisions among all active products based on their canonical barcodes.
+     * Detects:
+     * 1. Duplicate custom barcodes (e.g. BAR1 vs BAR1).
+     * 2. Collisions between custom barcode and system generated format (e.g. custom = "G-000042" vs generated for id 42).
+     * Returns a map of collision barcode -> list of conflicting products.
      */
-    fun resolveProduct(barcode: String, products: List<Product>): Product? {
-        val clean = barcode.trim()
-        if (clean.isEmpty()) return null
-
-        // Priority 1: Match customBarcode
-        val customMatch = products.firstOrNull {
-            it.customBarcode.isNotBlank() && it.customBarcode.trim().equals(clean, ignoreCase = true)
-        }
-        if (customMatch != null) return customMatch
-
-        // Priority 2: Match G-xxxxxx pattern (e.g. G-000005, G-5)
-        val gMatch = Regex("^[Gg]-0*(\\d+)$").matchEntire(clean)
-        if (gMatch != null) {
-            val id = gMatch.groupValues[1].toIntOrNull()
-            if (id != null) {
-                val prod = products.firstOrNull { it.id == id }
-                if (prod != null) return prod
-            }
-        }
-
-        // Priority 3: Direct productId if purely numeric
-        val numericId = clean.toIntOrNull()
-        if (numericId != null) {
-            val prod = products.firstOrNull { it.id == numericId }
-            if (prod != null) return prod
-        }
-
-        return null
+    fun findCanonicalBarcodeCollisions(products: List<Product>): Map<String, List<Product>> {
+        val active = products.filter { !it.isDeleted }
+        return active.groupBy { getCanonicalBarcode(it).trim().lowercase() }
+            .filter { it.value.size > 1 }
     }
 
     /**
-     * Resolves an input barcode string against StockTakeItems in an audit session.
-     * Priority 1: Exact match with productBarcode (non-blank, case-insensitive).
-     * Priority 2: System generated internal format G-xxxxxx -> resolved to productId.
-     * Priority 3: Direct productId match if the input is a valid integer.
+     * Finds canonical barcode collisions among StockTakeItems in a session.
      */
-    fun resolveStockTakeItem(barcode: String, items: List<StockTakeItem>): StockTakeItem? {
+    fun findCanonicalBarcodeCollisionsInItems(items: List<StockTakeItem>): Map<String, List<StockTakeItem>> {
+        return items.groupBy { it.productBarcode.trim().lowercase() }
+            .filter { it.value.size > 1 }
+    }
+
+    /**
+     * Resolves an input barcode string against a list of products with ambiguity detection.
+     */
+    fun resolveProductExact(barcode: String, products: List<Product>): ProductResolution {
         val clean = barcode.trim()
-        if (clean.isEmpty()) return null
+        if (clean.isEmpty()) return ProductResolution.NotFound
+        val active = products.filter { !it.isDeleted }
 
-        // Priority 1: Match custom productBarcode
-        val barcodeMatch = items.firstOrNull {
-            it.productBarcode.isNotBlank() && it.productBarcode.trim().equals(clean, ignoreCase = true)
-        }
-        if (barcodeMatch != null) return barcodeMatch
+        val matched = mutableMapOf<Int, Product>()
 
-        // Priority 2: Match G-xxxxxx pattern
+        // 1. Exact match with customBarcode (case-insensitive) or canonical barcode
+        active.filter {
+            (it.customBarcode.isNotBlank() && it.customBarcode.trim().equals(clean, ignoreCase = true)) ||
+                    getCanonicalBarcode(it).equals(clean, ignoreCase = true)
+        }.forEach { matched[it.id] = it }
+
+        // 2. G-xxxxxx pattern
         val gMatch = Regex("^[Gg]-0*(\\d+)$").matchEntire(clean)
         if (gMatch != null) {
             val id = gMatch.groupValues[1].toIntOrNull()
             if (id != null) {
-                val item = items.firstOrNull { it.productId == id }
-                if (item != null) return item
+                active.firstOrNull { it.id == id }?.let { matched[it.id] = it }
             }
         }
 
-        // Priority 3: Direct numeric productId
+        // 3. Numeric ID
         val numericId = clean.toIntOrNull()
         if (numericId != null) {
-            val item = items.firstOrNull { it.productId == numericId }
-            if (item != null) return item
+            active.firstOrNull { it.id == numericId }?.let { matched[it.id] = it }
         }
 
-        return null
+        return when {
+            matched.isEmpty() -> ProductResolution.NotFound
+            matched.size == 1 -> ProductResolution.Single(matched.values.first())
+            else -> ProductResolution.Ambiguous(clean, matched.values.toList())
+        }
+    }
+
+    fun resolveProduct(barcode: String, products: List<Product>): Product? {
+        return when (val res = resolveProductExact(barcode, products)) {
+            is ProductResolution.Single -> res.product
+            else -> null
+        }
+    }
+
+    /**
+     * Resolves an input barcode string against StockTakeItems with ambiguity detection.
+     */
+    fun resolveStockTakeItemExact(barcode: String, items: List<StockTakeItem>): StockTakeItemResolution {
+        val clean = barcode.trim()
+        if (clean.isEmpty()) return StockTakeItemResolution.NotFound
+
+        val matched = mutableMapOf<Int, StockTakeItem>()
+
+        // 1. Exact match with productBarcode (case-insensitive)
+        items.filter {
+            it.productBarcode.isNotBlank() && it.productBarcode.trim().equals(clean, ignoreCase = true)
+        }.forEach { matched[it.productId] = it }
+
+        // 2. G-xxxxxx pattern
+        val gMatch = Regex("^[Gg]-0*(\\d+)$").matchEntire(clean)
+        if (gMatch != null) {
+            val id = gMatch.groupValues[1].toIntOrNull()
+            if (id != null) {
+                items.firstOrNull { it.productId == id }?.let { matched[it.productId] = it }
+            }
+        }
+
+        // 3. Direct numeric productId
+        val numericId = clean.toIntOrNull()
+        if (numericId != null) {
+            items.firstOrNull { it.productId == numericId }?.let { matched[it.productId] = it }
+        }
+
+        return when {
+            matched.isEmpty() -> StockTakeItemResolution.NotFound
+            matched.size == 1 -> StockTakeItemResolution.Single(matched.values.first())
+            else -> StockTakeItemResolution.Ambiguous(clean, matched.values.toList())
+        }
+    }
+
+    fun resolveStockTakeItem(barcode: String, items: List<StockTakeItem>): StockTakeItem? {
+        return when (val res = resolveStockTakeItemExact(barcode, items)) {
+            is StockTakeItemResolution.Single -> res.item
+            else -> null
+        }
     }
 
     /**
      * Identifies any duplicate custom barcodes among active products.
-     * Returns a list of duplicated barcodes (trimmed) that appear on more than one active product.
+     * Kept for backward compatibility.
      */
     fun findDuplicateCustomBarcodes(products: List<Product>): List<String> {
-        val nonBlank = products.filter { !it.isDeleted && it.customBarcode.isNotBlank() }
-        val grouped = nonBlank.groupBy { it.customBarcode.trim().lowercase() }
-        return grouped.filter { it.value.size > 1 }.keys.toList()
+        val collisions = findCanonicalBarcodeCollisions(products)
+        return collisions.keys.toList()
     }
 }

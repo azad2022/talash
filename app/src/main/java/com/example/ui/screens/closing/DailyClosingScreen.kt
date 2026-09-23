@@ -474,24 +474,57 @@ fun DailyClosingScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         )
 
-                                        Button(
-                                            onClick = { showConfirmCloseDialog = true },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MetallicGold,
-                                                contentColor = DarkObsidian
-                                            ),
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(48.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Lock, contentDescription = null)
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                text = if (preview.existingClosing?.status == "CLOSED") "بروزرسانی بستن روز" else "بستن رسمی و قفل روز کاری",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
+                                        if (preview.existingClosing?.status == "CLOSED") {
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                                                border = BorderStroke(1.dp, CharcoalBorder)
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.padding(14.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        Icon(Icons.Filled.Lock, contentDescription = null, tint = StatusGreen)
+                                                        Text(
+                                                            text = "روز کاری رسماً بسته و قفل است",
+                                                            color = StatusGreen,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = "جهت انجام هرگونه تغییر، ثبت فاکتور جدید، ویرایش تعمیرات یا تسویه اقساط، ابتدا روز را بازگشایی فرمایید.",
+                                                        color = TextGray,
+                                                        fontSize = 12.sp,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = { showConfirmCloseDialog = true },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MetallicGold,
+                                                    contentColor = DarkObsidian
+                                                ),
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(48.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Lock, contentDescription = null)
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(
+                                                    text = if (preview.existingClosing?.status == "REOPENED") "بستن مجدد روز کاری (نسخه ${preview.existingClosing.revision + 1})" else "بستن رسمی و قفل روز کاری",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -611,17 +644,27 @@ fun DailyClosingScreen(
                                     }
 
                                     if (closing.status == "CLOSED") {
-                                        OutlinedButton(
-                                            onClick = {
-                                                showReopenDialog = closing
-                                                reopenReasonInput = ""
-                                            },
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MetallicGold),
-                                            border = BorderStroke(1.dp, MetallicGold),
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.align(Alignment.End)
-                                        ) {
-                                            Text("بازگشایی روز", fontSize = 11.sp)
+                                        val isCurrentDay = closing.businessDateKey == todayPreview?.businessDateKey
+                                        if (isCurrentDay) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    showReopenDialog = closing
+                                                    reopenReasonInput = ""
+                                                },
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MetallicGold),
+                                                border = BorderStroke(1.dp, MetallicGold),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.align(Alignment.End)
+                                            ) {
+                                                Text("بازگشایی روز", fontSize = 11.sp)
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "سند قطعی تاریخی",
+                                                color = TextGray,
+                                                fontSize = 10.sp,
+                                                modifier = Modifier.align(Alignment.End)
+                                            )
                                         }
                                     }
                                 }

@@ -5,6 +5,7 @@ import com.example.data.database.ShopDao
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
 import com.example.domain.util.BarcodeResolver
+import com.example.domain.util.StockTakeItemResolution
 import com.example.ui.util.JalaliCalendar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -442,21 +443,42 @@ class ShopRepository(
     val repairs: Flow<List<RepairWithCustomer>> = shopDao.getAllRepairs()
 
     suspend fun insertRepair(repair: Repair): Long {
-        val id = shopDao.insertRepair(repair)
-        val action = if (repair.id == 0) "ثبت سفارش تعمیر جدید" else "ویرایش سفارش تعمیر"
-        logAction("REPAIR_RECORD", "$action: ${repair.description}")
-        return id
+        return appDatabase.withTransaction {
+            val now = System.currentTimeMillis()
+            if (isBusinessDateClosed(now)) {
+                val dateKey = BusinessDayUtils.getBusinessDateKey(now)
+                throw IllegalStateException("روز کاری جاری ($dateKey) بسته شده است و امکان ثبت یا ویرایش سفارش تعمیر وجود ندارد. ابتدا روز را بازگشایی کنید.")
+            }
+            val id = shopDao.insertRepair(repair)
+            val action = if (repair.id == 0) "ثبت سفارش تعمیر جدید" else "ویرایش سفارش تعمیر"
+            logAction("REPAIR_RECORD", "$action: ${repair.description}")
+            id
+        }
     }
 
     suspend fun updateRepairStatus(repairId: Int, status: String) {
-        val deliveredTime = if (status == "DELIVERED") System.currentTimeMillis() else null
-        shopDao.updateRepairStatus(repairId, status, deliveredTime)
-        logAction("REPAIR_STATUS", "تغییر وضعیت تعمیر کد $repairId به $status")
+        appDatabase.withTransaction {
+            val now = System.currentTimeMillis()
+            if (isBusinessDateClosed(now)) {
+                val dateKey = BusinessDayUtils.getBusinessDateKey(now)
+                throw IllegalStateException("روز کاری جاری ($dateKey) بسته شده است و امکان تغییر وضعیت سفارش تعمیر وجود ندارد. ابتدا روز را بازگشایی کنید.")
+            }
+            val deliveredTime = if (status == "DELIVERED") now else null
+            shopDao.updateRepairStatus(repairId, status, deliveredTime)
+            logAction("REPAIR_STATUS", "تغییر وضعیت تعمیر کد $repairId به $status")
+        }
     }
 
     suspend fun deleteRepair(repair: Repair) {
-        shopDao.deleteRepair(repair)
-        logAction("REPAIR_DELETE", "حذف سفارش تعمیر کد ${repair.id}")
+        appDatabase.withTransaction {
+            val now = System.currentTimeMillis()
+            if (isBusinessDateClosed(now) || isBusinessDateClosed(repair.createdAt)) {
+                val dateKey = BusinessDayUtils.getBusinessDateKey(now)
+                throw IllegalStateException("روز کاری متناظر با سفارش تعمیر بسته شده است و امکان حذف آن وجود ندارد. ابتدا روز را بازگشایی کنید.")
+            }
+            shopDao.deleteRepair(repair)
+            logAction("REPAIR_DELETE", "حذف سفارش تعمیر کد ${repair.id}")
+        }
     }
 
     // --- AUDIT LOGS ---
@@ -666,6 +688,11 @@ class ShopRepository(
                     val existing = shopDao.getAllDailyClosingsSync().find { it.id == closingId }
                         ?: throw IllegalArgumentException("شناسه بستن روز یافت نشد: $closingId")
 
+                    val currentBusinessDate = BusinessDayUtils.getBusinessDateKey(System.currentTimeMillis())
+                    if (existing.businessDateKey != currentBusinessDate) {
+                        throw IllegalStateException("تنها روز کاری جاری ($currentBusinessDate) قابل بازگشایی است و سوابق روزهای گذشته قابل بازگشایی نیستند.")
+                    }
+
                     if (existing.status == "REOPENED") {
                         return@withTransaction existing
                     }
@@ -713,11 +740,14 @@ class ShopRepository(
 
                     val activeProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
 
-                    // Barcode ambiguity check: find duplicate custom barcodes among active products
-                    val duplicateBarcodes = BarcodeResolver.findDuplicateCustomBarcodes(activeProducts)
-                    if (duplicateBarcodes.isNotEmpty()) {
+                    // Canonical barcode collision check: check custom barcodes & generated G-xxxxxx
+                    val collisions = BarcodeResolver.findCanonicalBarcodeCollisions(activeProducts)
+                    if (collisions.isNotEmpty()) {
+                        val collisionDetails = collisions.map { (code, prods) ->
+                            "بارکد [$code] بین کالاهای (${prods.joinToString(", ") { it.name }})"
+                        }
                         throw IllegalStateException(
-                            "امکان شروع انبارگردانی وجود ندارد زیرا بارکدهای تکراری در بین کالاهای فعال یافت شد: [${duplicateBarcodes.joinToString(", ")}]. لطفاً ابتدا بارکدهای تکراری را اصلاح نمایید."
+                            "امکان شروع انبارگردانی وجود ندارد زیرا تداخل بارکد کانونیکال بین کالاهای فعال یافت شد: [${collisionDetails.joinToString("؛ ")}]. لطفاً ابتدا بارکدهای تکراری را اصلاح نمایید."
                         )
                     }
 
@@ -775,8 +805,17 @@ class ShopRepository(
                     }
 
                     val allItems = shopDao.getStockTakeItemsForSessionSync(sessionId)
-                    val item = BarcodeResolver.resolveStockTakeItem(barcode, allItems)
-                        ?: return@withTransaction StockTakeScanResult.NotFound(barcode.trim())
+                    val resolution = BarcodeResolver.resolveStockTakeItemExact(barcode, allItems)
+                    val item = when (resolution) {
+                        is StockTakeItemResolution.Single -> resolution.item
+                        is StockTakeItemResolution.Ambiguous -> {
+                            val names = resolution.items.map { it.productName }
+                            return@withTransaction StockTakeScanResult.Ambiguous(barcode.trim(), names)
+                        }
+                        is StockTakeItemResolution.NotFound -> {
+                            return@withTransaction StockTakeScanResult.NotFound(barcode.trim())
+                        }
+                    }
 
                     val newCount = item.countedStock + 1
                     val updatedItem = item.copy(
@@ -805,6 +844,10 @@ class ShopRepository(
                     val session = shopDao.getStockTakeSessionById(sessionId)
                         ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد")
 
+                    if (session.status != "IN_PROGRESS" && session.status != "REVIEW_REQUIRED") {
+                        throw IllegalStateException("این نشست در وضعیت ${session.status} است و امکان لغو آخرین اسکن ندارد.")
+                    }
+
                     val item = shopDao.getStockTakeItemByProduct(sessionId, productId)
                         ?: throw IllegalArgumentException("کالا در این انبارگردانی یافت نشد")
 
@@ -813,10 +856,12 @@ class ShopRepository(
                     }
 
                     val newCount = item.countedStock - 1
+                    val newIsCounted = if (newCount == 0) false else true
                     val updatedItem = item.copy(
                         countedStock = newCount,
-                        isCounted = true,
-                        difference = newCount - item.expectedStockAtStart
+                        isCounted = newIsCounted,
+                        difference = newCount - item.expectedStockAtStart,
+                        status = if (newCount == 0) "PENDING" else item.status
                     )
                     shopDao.updateStockTakeItem(updatedItem)
 
@@ -909,19 +954,30 @@ class ShopRepository(
                         }
                         shopDao.insertStockTakeItems(newItems)
                         items.addAll(newItems)
-                        if (session.status != "REVIEW_REQUIRED") {
-                            shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
-                        }
+
+                        val addedExpected = newProducts.sumOf { it.stock }
+                        val updatedTotalExpected = session.totalExpectedPieces + addedExpected
+                        shopDao.updateStockTakeSession(
+                            session.copy(
+                                totalExpectedPieces = updatedTotalExpected,
+                                status = "REVIEW_REQUIRED"
+                            )
+                        )
                     }
+
+                    // Check for canonical barcode collisions among session items
+                    val barcodeCollisions = BarcodeResolver.findCanonicalBarcodeCollisionsInItems(items)
 
                     val updatedList = mutableListOf<StockTakeItem>()
 
                     for (item in items) {
                         val currentProd = shopDao.getProductById(item.productId)
                         val currentSysStock = currentProd?.stock ?: 0
-                        val changedDuring = (currentSysStock != item.expectedStockAtStart) || item.changedDuringSession
+                        val isCollided = barcodeCollisions.containsKey(item.productBarcode.trim().lowercase())
+                        val changedDuring = (currentSysStock != item.expectedStockAtStart) || item.changedDuringSession || isCollided
 
                         val status = when {
+                            isCollided -> "NEEDS_REVIEW"
                             item.status == "NEW_PRODUCT_DURING_SESSION" -> "NEW_PRODUCT_DURING_SESSION"
                             !item.isCounted -> "UNCOUNTED"
                             changedDuring -> "NEEDS_REVIEW"
@@ -941,9 +997,17 @@ class ShopRepository(
 
                     val hasReviewFlags = updatedList.any {
                         it.status in listOf("UNCOUNTED", "NEEDS_REVIEW", "NEW_PRODUCT_DURING_SESSION")
-                    }
+                    } || barcodeCollisions.isNotEmpty()
+
                     if (hasReviewFlags && session.status == "IN_PROGRESS") {
                         shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
+                    }
+
+                    if (barcodeCollisions.isNotEmpty()) {
+                        logAction(
+                            "STOCK_TAKE_BARCODE_COLLISION_DETECTED",
+                            "تداخل بارکد در انبارگردانی #${sessionId} شناسایی شد: [${barcodeCollisions.keys.joinToString(", ")}]"
+                        )
                     }
 
                     updatedList
@@ -973,11 +1037,17 @@ class ShopRepository(
                     val item = shopDao.getStockTakeItemByProduct(sessionId, productId)
                         ?: throw IllegalArgumentException("کالا در این انبارگردانی یافت نشد")
 
+                    // Invariant: NEW_PRODUCT_DURING_SESSION with !item.isCounted and verifiedCount == 0 cannot be resolved blindly without counting
+                    if (item.status == "NEW_PRODUCT_DURING_SESSION" && !item.isCounted && verifiedCount == 0) {
+                        throw IllegalStateException("کالای جدید حین انبارگردانی هنوز شمارش نشده است (isCounted = false). جهت تأیید موجودی صفر، ابتدا شمارش صفر را به صورت صریح برای این قلم ثبت نمایید.")
+                    }
+
                     val currentProd = shopDao.getProductById(productId)
                         ?: throw IllegalArgumentException("کالای اصلی در انبار یافت نشد")
 
                     val safeCount = verifiedCount.coerceAtLeast(0)
                     val currentSysStock = currentProd.stock
+                    val oldExpectedBaseline = item.expectedStockAtStart
 
                     // Update baseline to the current system stock and mark as counted and resolved
                     val resolvedItem = item.copy(
@@ -1011,7 +1081,7 @@ class ShopRepository(
 
                     logAction(
                         "STOCK_TAKE_ITEM_RESOLVED",
-                        "بازبینی و تأیید مبنای قلم «${item.productName}»: مبنای سیستم $currentSysStock، شمارش $safeCount"
+                        "تطبیق و بازبینی قلم «${item.productName}» در نشست #$sessionId: کالا کد $productId، مبنای پیشین $oldExpectedBaseline، موجودی فعلی سیستم $currentSysStock، شمارش فیزیکی تأییدشده $safeCount، نوع: ${item.status}"
                     )
 
                     resolvedItem
@@ -1039,6 +1109,12 @@ class ShopRepository(
                     if (session.status == "COMPLETED") {
                         throw IllegalStateException("این انبارگردانی قبلاً اعمال و نهایی شده است.")
                     }
+                    if (session.status == "CANCELLED") {
+                        throw IllegalStateException("این نشست انبارگردانی لغو شده است و امکان اعمال ندارد.")
+                    }
+                    if (session.status == "REVIEW_REQUIRED") {
+                        throw IllegalStateException("نشست انبارگردانی در وضعیت REVIEW_REQUIRED است و تا تعیین‌تکلیف کامل اقلام، امکان نهایی‌سازی وجود ندارد.")
+                    }
 
                     val items = shopDao.getStockTakeItemsForSessionSync(sessionId)
 
@@ -1059,35 +1135,57 @@ class ShopRepository(
                         )
                     }
 
-                    // 3. Guard against concurrent modifications during session
+                    // 3. Guard against canonical barcode collisions
+                    val itemCollisions = BarcodeResolver.findCanonicalBarcodeCollisionsInItems(items)
+                    if (itemCollisions.isNotEmpty()) {
+                        shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
+                        throw IllegalStateException(
+                            "تداخل بارکد کانونیکال در اقلام انبارگردانی یافت شد: [${itemCollisions.keys.joinToString(", ")}]. نهایی‌سازی انبارگردانی مسدود شد."
+                        )
+                    }
+
+                    // 4. Guard against missing products and concurrent modifications during session
+                    var missingFound = false
+                    var missingMessage = ""
                     var blockedCount = 0
                     val blockedItems = mutableListOf<String>()
 
                     for (item in items) {
                         val currentProd = shopDao.getProductById(item.productId)
-                        val currentStock = currentProd?.stock ?: 0
-
-                        if (currentStock != item.expectedStockAtStart) {
-                            blockedCount++
-                            blockedItems.add("${item.productName} (موجودی اولیه: ${item.expectedStockAtStart}، موجودی فعلی: $currentStock)")
+                        if (currentProd == null) {
+                            missingFound = true
+                            missingMessage = "کالای «${item.productName}» (کد ${item.productId}) در دیتابیس یافت نشد."
                             val updated = item.copy(
                                 changedDuringSession = true,
-                                systemStockAtFinalize = currentStock,
-                                difference = item.countedStock - currentStock,
+                                status = "NEEDS_REVIEW"
+                            )
+                            shopDao.updateStockTakeItem(updated)
+                        } else if (currentProd.stock != item.expectedStockAtStart) {
+                            blockedCount++
+                            blockedItems.add("${item.productName} (موجودی اولیه: ${item.expectedStockAtStart}، موجودی فعلی: ${currentProd.stock})")
+                            val updated = item.copy(
+                                changedDuringSession = true,
+                                systemStockAtFinalize = currentProd.stock,
+                                difference = item.countedStock - currentProd.stock,
                                 status = "NEEDS_REVIEW"
                             )
                             shopDao.updateStockTakeItem(updated)
                         }
                     }
 
-                    if (blockedCount > 0) {
+                    if (missingFound || blockedCount > 0) {
                         shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
+                        val logMsg = if (missingFound) missingMessage else "تغییر همزمان $blockedCount قلم کالا: [${blockedItems.take(3).joinToString("، ")}]"
                         logAction(
                             "STOCK_TAKE_FINAL_APPLY_BLOCKED",
-                            "اعمال نهایی انبارگردانی #${session.id} به دلیل تغییر همزمان $blockedCount قلم کالا مسدود شد: [${blockedItems.take(3).joinToString("، ")}]."
+                            "اعمال نهایی انبارگردانی #${session.id} مسدود شد: $logMsg"
                         )
                         throw IllegalStateException(
-                            "تعداد $blockedCount قلم کالا حین انبارگردانی توسط سایر بخش‌های نرم‌افزار تغییر یافته‌اند: [${blockedItems.take(3).joinToString("، ")}]. وضعیت نشست به REVIEW_REQUIRED تغییر یافت و اعمال نهایی مسدود شد. لطفاً اقلام را مجدداً بازبینی فرمایید."
+                            if (missingFound) {
+                                "$missingMessage وضعیت این قلم به NEEDS_REVIEW تغییر یافت و اعمال نهایی مسدود شد."
+                            } else {
+                                "تعداد $blockedCount قلم کالا حین انبارگردانی توسط سایر بخش‌های نرم‌افزار تغییر یافته‌اند: [${blockedItems.take(3).joinToString("، ")}]. وضعیت نشست به REVIEW_REQUIRED تغییر یافت و اعمال نهایی مسدود شد. لطفاً اقلام را مجدداً بازبینی فرمایید."
+                            }
                         )
                     }
 
@@ -1095,8 +1193,8 @@ class ShopRepository(
                     var matchedCount = 0
 
                     for (item in items) {
-                        val currentProd = shopDao.getProductById(item.productId)
-                        val currentStock = currentProd?.stock ?: 0
+                        val currentProd = shopDao.getProductById(item.productId)!!
+                        val currentStock = currentProd.stock
 
                         if (item.countedStock == currentStock) {
                             matchedCount++
@@ -1152,6 +1250,14 @@ class ShopRepository(
                 appDatabase.withTransaction {
                     val session = shopDao.getStockTakeSessionById(sessionId)
                         ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد")
+
+                    if (session.status == "COMPLETED") {
+                        throw IllegalStateException("این انبارگردانی قبلاً اعمال و نهایی شده است و امکان لغو ندارد.")
+                    }
+
+                    if (session.status == "CANCELLED") {
+                        return@withTransaction
+                    }
 
                     val cancelledSession = session.copy(
                         status = "CANCELLED",
@@ -1343,6 +1449,7 @@ data class TodaySummaryPreview(
 sealed class StockTakeScanResult {
     data class Success(val item: StockTakeItem, val totalCounted: Int) : StockTakeScanResult()
     data class NotFound(val barcode: String) : StockTakeScanResult()
+    data class Ambiguous(val barcode: String, val matchedProductNames: List<String>) : StockTakeScanResult()
 }
 
 data class StockTakeApplyResult(
