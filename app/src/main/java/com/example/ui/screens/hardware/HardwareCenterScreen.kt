@@ -312,7 +312,6 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
                 }
             }
         }
-        }
     }
     if (showDialog) {
         AlertDialog(
