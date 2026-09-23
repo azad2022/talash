@@ -2718,6 +2718,8 @@ fun InvoiceScreen(
                                     Toast.makeText(context, "هنوز وزن پایدار دریافت نشده است.", Toast.LENGTH_SHORT).show()
                                 } else if (onlyItem == null) {
                                     Toast.makeText(context, "برای ثبت وزن مستقیم، سبد باید دقیقاً یک قلم داشته باشد.", Toast.LENGTH_SHORT).show()
+                                } else if (onlyItem.qty != 1) {
+                                    Toast.makeText(context, "برای وزن‌کشی مستقیم، تعداد این قلم باید دقیقاً ۱ باشد.", Toast.LENGTH_SHORT).show()
                                 } else {
                                     weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
                                     viewModel.applyStableWeightToDraft(onlyItem.product.id, stable.grams)
