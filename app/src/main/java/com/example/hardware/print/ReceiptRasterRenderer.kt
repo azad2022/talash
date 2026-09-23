@@ -14,12 +14,13 @@ object ReceiptRasterRenderer {
         text: String,
         widthPx: Int = 576,
         textSizePx: Float = 25f,
-        paddingPx: Int = 18
+        paddingPx: Int = 18,
+        typeface: Typeface? = null
     ): Bitmap {
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             this.textSize = textSizePx
-            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            typeface = typeface ?: Typeface.create("sans-serif", Typeface.NORMAL)
         }
         val contentWidth = (widthPx - paddingPx * 2).coerceAtLeast(1)
         val layout = StaticLayout.Builder
