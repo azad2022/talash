@@ -72,6 +72,41 @@ class HardwareRallyIntegrityTest {
     }
 
     @Test
+    fun numeric_and_g_id_alias_collisions_are_rejected() = runTest {
+        val first = Product(
+            id = 1,
+            name = "کالای اول",
+            category = "انگشتر",
+            weightGram = BigDecimal("1.0"),
+            wagePrice = BigDecimal.ZERO,
+            wageType = "FIXED",
+            stock = 1
+        )
+        assertTrue(repository.insertProduct(first) > 0)
+
+        val second = Product(
+            name = "کالای دوم",
+            category = "انگشتر",
+            weightGram = BigDecimal("1.0"),
+            wagePrice = BigDecimal.ZERO,
+            wageType = "FIXED",
+            stock = 1,
+            customBarcode = "1"
+        )
+
+        var failed = false
+        try {
+            repository.insertProduct(second)
+        } catch (_: IllegalStateException) {
+            failed = true
+        }
+        assertTrue(failed)
+
+        val active = dao.getAllProductsSync().filter { !it.isDeleted }
+        assertEquals(1, active.size)
+    }
+
+    @Test
     fun camera_and_hid_share_same_ambiguous_barcode_resolution() = runTest {
         val p1 = Product(
             id = 1,
