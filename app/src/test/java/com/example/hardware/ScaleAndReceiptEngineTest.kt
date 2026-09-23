@@ -22,11 +22,12 @@ class ScaleAndReceiptEngineTest {
 
     @Test
     fun detector_requires_consecutive_stable_samples() {
-        val detector = StableWeightDetector(BigDecimal("0.005"), 4)
-        assertEquals(null, detector.addSample(BigDecimal("3.420")))
-        assertEquals(null, detector.addSample(BigDecimal("3.423")))
-        assertEquals(null, detector.addSample(BigDecimal("3.421")))
-        val stable = detector.addSample(BigDecimal("3.422"))
+        val detector = StableWeightDetector(BigDecimal("0.005"), 4, 300L)
+        assertEquals(null, detector.addSample(BigDecimal("3.420"), 0L))
+        assertEquals(null, detector.addSample(BigDecimal("3.423"), 100L))
+        assertEquals(null, detector.addSample(BigDecimal("3.421"), 200L))
+        assertEquals(null, detector.addSample(BigDecimal("3.422"), 250L))
+        val stable = detector.addSample(BigDecimal("3.422"), 300L)
         assertNotNull(stable)
         assertEquals(4, stable!!.samples)
         assertTrue(stable.grams.subtract(BigDecimal("3.4215")).abs() < BigDecimal("0.001"))
