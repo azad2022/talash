@@ -64,7 +64,7 @@ class BluetoothSppTransport(private val context: Context) : HardwareTransport {
         }
     }
 
-    override suspend fun disconnect() {
+    override fun disconnect() {
         readerJob?.cancel()
         readerJob = null
         closeQuietly()
