@@ -67,7 +67,7 @@ class UsbSerialTransport(
                 closeQuietly()
                 _state.value = HardwareConnectionState.ERROR
                 HardwareResult.Failure(
-                    "اتصال USB Serial ناموفق بود: ${{e.localizedMessage ?: e.message ?: "خطای ناشناخته"}",
+                    "اتصال USB Serial ناموفق بود: ${e.localizedMessage ?: e.message ?: "خطای ناشناخته"}",
                     e
                 )
             }
