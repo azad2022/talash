@@ -18,6 +18,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
 import com.example.data.repository.*
+import com.example.hardware.HardwareManager
+import com.example.hardware.PairedBluetoothDevice
+import com.example.hardware.core.HardwareConnectionState
+import com.example.hardware.core.HardwareDeviceType
+import com.example.hardware.core.HardwareResult
+import com.example.hardware.print.EscPosEncoder
+import com.example.hardware.print.GoldLabelFormatter
+import com.example.hardware.print.ReceiptFormatter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -31,7 +39,15 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
-class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
+class ShopViewModel(private val repository: ShopRepository, appContext: Context? = null) : ViewModel() {
+
+    private val hardwareManager = appContext?.applicationContext?.let { HardwareManager(it, viewModelScope) }
+    private val defaultHardwareState = MutableStateFlow(HardwareConnectionState.DISCONNECTED)
+    private val defaultStableWeight = MutableStateFlow<com.example.hardware.core.StableWeight?>(null)
+    val hardwareConnectionState: StateFlow<HardwareConnectionState> = hardwareManager?.connectionState ?: defaultHardwareState
+    val hardwareConnectedDevice: StateFlow<com.example.hardware.core.HardwareDevice?> = hardwareManager?.connectedDevice ?: MutableStateFlow(null)
+    val hardwareLatestStableWeight: StateFlow<com.example.hardware.core.StableWeight?> = hardwareManager?.latestStableWeight ?: defaultStableWeight
+
 
     // --- SECURITY & PIN AUTHFLOW ---
     var pinError by mutableStateOf(false)
@@ -553,8 +569,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         onError: ((String) -> Unit)? = null,
         onSuccess: (Int) -> Unit
     ): Boolean {
-        val cust = draftCustomer ?: return false
         if (draftItems.isEmpty()) return false
+        val customerId = draftCustomer?.id ?: 0
 
         val discVal = draftDiscountInput.toDoubleOrNull() ?: 0.0
         val prepaymentVal = draftPrepaymentInput.toDoubleOrNull() ?: 0.0
@@ -597,7 +613,7 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 )
 
                 val saleInvoice = SaleInvoice(
-                    customerId = cust.id,
+                    customerId = customerId,
                     totalAmount = finalPayableBd,
                     discount = discBd,
                     tax = taxEst,
@@ -709,53 +725,58 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
 
     fun queueInvoicePrintReceipt(context: Context, invoice: InvoiceWithDetails) {
         val prefs = context.getSharedPreferences("receipt_prefs", Context.MODE_PRIVATE)
-        val shopName = prefs.getString("receipt_shop_name", "گالری طلای گیلدار (شعبه مرکزی)") ?: "گالری طلای گیلدار (شعبه مرکزی)"
-        val receiptTitle = prefs.getString("receipt_title", "فاکتور فروش معتبر کالا") ?: "فاکتور فروش معتبر کالا"
-        val receiptFooter = prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم."
-        val receiptAddress = prefs.getString("receipt_address", "آدرس: گالری اصلی طلا، تهران") ?: "آدرس: گالری اصلی طلا، تهران"
-        
-        val stringBuilder = StringBuilder()
-        stringBuilder.append("===============================\n")
-        stringBuilder.append("       $shopName\n")
-        stringBuilder.append("       $receiptTitle\n")
-        stringBuilder.append("===============================\n")
-        stringBuilder.append("شماره فاکتور: ${invoice.invoice.id}\n")
-        stringBuilder.append("تاریخ صدور: ${com.example.ui.util.JalaliCalendar.getJalaliDateTime(invoice.invoice.date)}\n")
-        stringBuilder.append("نام مشتری: ${invoice.customer?.name ?: "مشتری متفرقه"}\n")
-        stringBuilder.append("تلفن همراه: ${invoice.customer?.phone ?: "-"}\n")
-        stringBuilder.append("-------------------------------\n")
-        stringBuilder.append("شرح کالا / عیار / وزن (گرم) / فی کل \n")
-        stringBuilder.append("-------------------------------\n")
-        invoice.items.forEach { item ->
-            val productName = item.customName ?: "طلای زینتی"
-            stringBuilder.append("$productName (عیار 18) \n  ${item.quantity} عدد | فی: ${formatCurrency(item.unitPrice)} تومان\n")
-        }
-        stringBuilder.append("-------------------------------\n")
-        stringBuilder.append("مبلغ کل اقلام: ${formatCurrency(invoice.invoice.totalAmount.add(invoice.invoice.discount))} تومان\n")
-        if (invoice.invoice.discount > BigDecimal.ZERO) {
-            stringBuilder.append("تخفیف نقدی: ${formatCurrency(invoice.invoice.discount)} تومان\n")
-        }
-        stringBuilder.append("جمع نهایی پرداختی: ${formatCurrency(invoice.invoice.totalAmount)} تومان\n")
-        stringBuilder.append("نوع تسویه حساب: ${if (invoice.invoice.paymentType == "CASH") "نقدی (کامل)" else "اقساطی"}\n")
-        if (invoice.invoice.paymentType == "INSTALLMENT") {
-            stringBuilder.append("پیش پرداخت: ${formatCurrency(invoice.invoice.prepayment)} تومان\n")
-            stringBuilder.append("تعداد اقساط: ${invoice.invoice.installmentsCount} ماهه\n")
-            val monthlyPay = if (invoice.invoice.installmentsCount > 0) {
-                invoice.invoice.totalAmount.subtract(invoice.invoice.prepayment).divide(BigDecimal.valueOf(invoice.invoice.installmentsCount.toLong()), 0, java.math.RoundingMode.HALF_UP)
-            } else BigDecimal.ZERO
-            stringBuilder.append("مبلغ هر قسط: ${formatCurrency(monthlyPay)} تومان\n")
-        }
-        stringBuilder.append("\n===============================\n")
-        stringBuilder.append("$receiptFooter\n")
-        stringBuilder.append("   $receiptAddress\n")
-        stringBuilder.append("===============================\n")
-
-        activePrintJobPayload = stringBuilder.toString()
+        val profile = com.example.hardware.print.ReceiptProfile(
+            shopName = prefs.getString("receipt_shop_name", "گالری طلای گیلدار (شعبه مرکزی)") ?: "گالری طلای گیلدار (شعبه مرکزی)",
+            title = prefs.getString("receipt_title", "فاکتور فروش معتبر کالا") ?: "فاکتور فروش معتبر کالا",
+            footer = prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم.",
+            address = prefs.getString("receipt_address", "آدرس گالری") ?: "آدرس گالری"
+        )
+        activePrintJobPayload = ReceiptFormatter.format(
+            invoice = invoice,
+            productsById = products.value.associateBy { it.id },
+            profile = profile
+        )
         isShowingPrinterReceiptSimulation = true
-        
         viewModelScope.launch {
-            repository.logAction("RECEIPT_PRINT", "چاپ رسید فاکتور شماره ${invoice.invoice.id}")
+            repository.logAction("RECEIPT_PREVIEW_READY", "پیش‌نمایش رسید داده‌محور فاکتور شماره ${{invoice.invoice.id}")
         }
+    }
+
+    fun pairedBluetoothDevices(): List<PairedBluetoothDevice> =
+        hardwareManager?.pairedBluetoothDevices() ?: emptyList()
+
+    fun connectBluetoothHardware(
+        name: String,
+        address: String,
+        type: HardwareDeviceType
+    ) {
+        hardwareManager?.connectBluetooth(name, address, type)
+    }
+
+    fun disconnectHardware() {
+        hardwareManager?.let { manager ->
+            viewModelScope.launch { manager.disconnect() }
+        }
+    }
+
+    fun printActiveReceiptToHardware(onResult: (HardwareResult<Unit>) -> Unit = {}) {
+        val payload = activePrintJobPayload
+        if (payload.isNullOrBlank()) {
+            onResult(HardwareResult.Failure("رسیدی برای چاپ آماده نیست."))
+            return
+        }
+        hardwareManager?.write(EscPosEncoder.encodeText(payload), onResult)
+            ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+    }
+
+    fun printProductLabelToHardware(
+        product: Product,
+        onResult: (HardwareResult<Unit>) -> Unit = {}
+    ) {
+        val barcode = com.example.domain.util.BarcodeResolver.getCanonicalBarcode(product)
+        val payload = GoldLabelFormatter.text(product, barcode)
+        hardwareManager?.write(EscPosEncoder.encodeText(payload), onResult)
+            ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
     }
 
     // --- NATIVE PDF EXPORTER (RTL Persian Layouts to Downloads) ---
