@@ -3857,6 +3857,26 @@ fun ReportsScreen(
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                             )
 
+                            Text("عرض رول فیش", color = TextWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(58 to "۵۸ میلی‌متر", 80 to "۸۰ میلی‌متر").forEach { (mm, label) ->
+                                    val selected = prefs.getInt("receipt_paper_mm", 80) == mm
+                                    Button(
+                                        onClick = { prefs.edit().putInt("receipt_paper_mm", mm).apply() },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (selected) MetallicGold else SmokyBronze,
+                                            contentColor = if (selected) DarkObsidian else TextWhite
+                                        )
+                                    ) {
+                                        Text(label, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
                             // Live preview title
                             Text("پیش‌نمایش زنده رسید حرارتی چاپی:", color = TextWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
 
