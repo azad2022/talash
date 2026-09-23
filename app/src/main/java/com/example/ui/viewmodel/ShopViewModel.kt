@@ -759,14 +759,20 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         }
     }
 
-    fun printActiveReceiptToHardware(onResult: (HardwareResult<Unit>) -> Unit = {}) {
-        val payload = activePrintJobPayload
-        if (payload.isNullOrBlank()) {
-            onResult(HardwareResult.Failure("رسیدی برای چاپ آماده نیست."))
+    fun printReceiptTextToHardware(
+        payload: String,
+        onResult: (HardwareResult<Unit>) -> Unit = {}
+    ) {
+        if (payload.isBlank()) {
+            onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
             return
         }
         hardwareManager?.write(EscPosEncoder.encodeText(payload), onResult)
             ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+    }
+
+    fun printActiveReceiptToHardware(onResult: (HardwareResult<Unit>) -> Unit = {}) {
+        printReceiptTextToHardware(activePrintJobPayload.orEmpty(), onResult)
     }
 
     fun printProductLabelToHardware(
