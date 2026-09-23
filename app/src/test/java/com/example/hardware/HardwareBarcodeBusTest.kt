@@ -2,6 +2,7 @@ package com.example.hardware
 
 import android.view.KeyEvent
 import com.example.hardware.barcode.HardwareBarcodeBus
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -28,6 +29,7 @@ class HardwareBarcodeBusTest {
     @Test
     fun active_bus_consumes_scan_and_emits_value() = runTest {
         HardwareBarcodeBus.setEnabled(true)
+        val nextScan = async { HardwareBarcodeBus.scans.first() }
         val events = listOf(
             '1' to KeyEvent.KEYCODE_1,
             '2' to KeyEvent.KEYCODE_2,
@@ -43,7 +45,7 @@ class HardwareBarcodeBusTest {
             )
         }
         HardwareBarcodeBus.onKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
-        assertEquals("1234", HardwareBarcodeBus.scans.first())
+        assertEquals("1234", nextScan.await())
         HardwareBarcodeBus.setEnabled(false)
     }
 }
