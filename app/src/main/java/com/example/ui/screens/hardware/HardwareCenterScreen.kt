@@ -31,7 +31,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.onDispose
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -66,6 +68,11 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         pairedDevices = viewModel.pairedBluetoothDevices()
     }
+    DisposableEffect(Unit) {
+        HardwareBarcodeBus.setEnabled(true)
+        onDispose { HardwareBarcodeBus.setEnabled(false) }
+    }
+
     LaunchedEffect(Unit) {
         HardwareBarcodeBus.scans.collectLatest { lastScan = it }
     }
