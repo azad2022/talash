@@ -1395,6 +1395,11 @@ fun WarehouseScreen(
     var selectedProductToBarcodePrint by remember { mutableStateOf<Product?>(null) }
     var isScannerOpen by remember { mutableStateOf(false) }
     var outOfStockProductForDialog by remember { mutableStateOf<Product?>(null) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(true)
+        onDispose { com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(false) }
+    }
+
     LaunchedEffect(Unit) {
         com.example.hardware.barcode.HardwareBarcodeBus.scans.collect { code ->
             searchQuery = code
@@ -2550,6 +2555,11 @@ fun InvoiceScreen(
     var weightedItemWeight by remember { mutableStateOf("") }
     var isInvoiceScannerOpen by remember { mutableStateOf(false) }
     val hardwareStableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(true)
+        onDispose { com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(false) }
+    }
 
     LaunchedEffect(productsList) {
         com.example.hardware.barcode.HardwareBarcodeBus.scans.collect { code ->
