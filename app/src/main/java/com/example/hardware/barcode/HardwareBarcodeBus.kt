@@ -20,8 +20,9 @@ object HardwareBarcodeBus {
     private var lastCharAt = 0L
 
     @Synchronized
-    fun onKeyEvent(event: KeyEvent) {
-        if (!enabled || event.action != KeyEvent.ACTION_UP) return
+    fun onKeyEvent(event: KeyEvent): Boolean {
+        if (!enabled) return false
+        if (event.action != KeyEvent.ACTION_UP) return true
         val now = System.currentTimeMillis()
 
         if (event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_TAB) {
@@ -30,13 +31,15 @@ object HardwareBarcodeBus {
             }
             buffer.clear()
             lastCharAt = 0L
-            return
+            enabled = false
+            return true
         }
 
         val codePoint = event.unicodeChar
-        if (codePoint == 0) return
+        if (codePoint == 0) return true
         if (lastCharAt > 0L && now - lastCharAt > MAX_INTER_KEY_DELAY_MS) buffer.clear()
         buffer.appendCodePoint(codePoint)
         lastCharAt = now
+        return true
     }
 }
