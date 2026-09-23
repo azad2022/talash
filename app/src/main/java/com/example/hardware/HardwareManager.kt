@@ -49,6 +49,7 @@ class HardwareManager(
 
     private var transport: HardwareTransport? = null
     private var readerJob: Job? = null
+    private var transportStateJob: Job? = null
     private val weightDetector = StableWeightDetector()
     private val inputBuffer = StringBuilder()
 
@@ -85,6 +86,7 @@ class HardwareManager(
                     _lastError.value = null
                     _connectedDevice.value = device
                     _connectionState.value = HardwareConnectionState.CONNECTED
+                    observeTransportState(bt)
                     startReader(bt, type)
                 }
                 is HardwareResult.Failure -> {
@@ -141,6 +143,7 @@ class HardwareManager(
                     _lastError.value = null
                     _connectedDevice.value = device
                     _connectionState.value = HardwareConnectionState.CONNECTED
+                    observeTransportState(usb)
                     startReader(usb, type)
                 }
                 is HardwareResult.Failure -> {
@@ -164,15 +167,23 @@ class HardwareManager(
             return
         }
         if (device.type != expectedType) {
-            onResult(HardwareResult.Failure("دستگاه متصل برای این عملیات مناسب نیست."))
+            val failure = HardwareResult.Failure("دستگاه متصل برای این عملیات مناسب نیست.")
+            _lastError.value = failure.message
+            onResult(failure)
             return
         }
-        scope.launch { onResult(active.write(bytes)) }
+        scope.launch {
+            val result = active.write(bytes)
+            if (result is HardwareResult.Failure) _lastError.value = result.message
+            onResult(result)
+        }
     }
 
     suspend fun disconnect() {
         readerJob?.cancel()
         readerJob = null
+        transportStateJob?.cancel()
+        transportStateJob = null
         weightDetector.reset()
         inputBuffer.clear()
         _latestStableWeight.value = null
@@ -182,6 +193,18 @@ class HardwareManager(
         active?.disconnect()
         _connectedDevice.value = null
         _connectionState.value = HardwareConnectionState.DISCONNECTED
+    }
+
+    private fun observeTransportState(active: HardwareTransport) {
+        transportStateJob?.cancel()
+        transportStateJob = scope.launch {
+            active.state.collect { state ->
+                _connectionState.value = state
+                if (state == HardwareConnectionState.ERROR && _lastError.value.isNullOrBlank()) {
+                    _lastError.value = "ارتباط با دستگاه قطع یا دچار خطا شد."
+                }
+            }
+        }
     }
 
     private fun startReader(active: HardwareTransport, type: HardwareDeviceType) {
