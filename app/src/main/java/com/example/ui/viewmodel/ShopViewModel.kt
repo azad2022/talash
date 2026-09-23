@@ -565,6 +565,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             val index = draftItems.indexOfFirst { it.product.id == productId }
             if (index < 0) return@launch
             val current = draftItems[index]
+            if (current.qty != 1) return@launch
             val user = repository.getOrInitializeUser()
             val weightedProduct = current.product.copy(weightGram = measuredWeight)
             val unitPrice = weightedProduct.calculateAssetValue(
