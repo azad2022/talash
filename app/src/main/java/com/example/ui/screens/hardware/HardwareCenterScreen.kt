@@ -48,6 +48,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.hardware.barcode.HardwareBarcodeBus
 import com.example.hardware.core.HardwareConnectionState
 import com.example.hardware.core.HardwareDeviceType
+import com.example.hardware.core.SerialConnectionSettings
 import com.example.ui.theme.DarkObsidian
 import com.example.ui.theme.MetallicGold
 import com.example.ui.theme.SmokyBronze
@@ -65,6 +66,10 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
     var selectedType by remember { mutableStateOf(HardwareDeviceType.SCALE) }
     var showDialog by remember { mutableStateOf(false) }
     var lastScan by remember { mutableStateOf<String?>(null) }
+    var baudRate by remember { mutableStateOf(9600) }
+    var dataBits by remember { mutableStateOf(8) }
+    var parity by remember { mutableStateOf(0) }
+    var stopBits by remember { mutableStateOf(1) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         pairedDevices = viewModel.pairedBluetoothDevices()
@@ -176,6 +181,53 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
                 Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SmokyCard)) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("تجهیزات USB / Serial", color = MetallicGold, fontSize = 13.sp)
+                        Text("تنظیمات خط سریال", color = TextWhite, fontSize = 11.sp)
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(4800, 9600, 19200, 38400, 57600, 115200).forEach { rate ->
+                                Button(
+                                    onClick = { baudRate = rate },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
+                                ) {
+                                    Text(rate.toString(), fontSize = 8.sp)
+                                }
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(7, 8).forEach { bits ->
+                                Button(
+                                    onClick = { dataBits = bits },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
+                                ) {
+                                    Text(bits.toString() + " bit", fontSize = 8.sp)
+                                }
+                            }
+                            listOf(0 to "None", 2 to "Even", 1 to "Odd").forEach { (value, label) ->
+                                Button(
+                                    onClick = { parity = value },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
+                                ) {
+                                    Text(label, fontSize = 8.sp)
+                                }
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(1 to "1 stop", 2 to "2 stop").forEach { (value, label) ->
+                                Button(
+                                    onClick = { stopBits = value },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
+                                ) {
+                                    Text(label, fontSize = 8.sp)
+                                }
+                            }
+                        }
+
                         Button(
                             onClick = { usbDevices = viewModel.usbSerialDevices() },
                             modifier = Modifier.fillMaxWidth()
@@ -202,7 +254,12 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
                             Text("USB Serial • " + (device.vendorId?.toString() ?: "-") + ":" + (device.productId?.toString() ?: "-"), color = TextGray, fontSize = 10.sp)
                         }
                         Button(onClick = {
-                            viewModel.connectUsbHardware(device.id.toIntOrNull() ?: -1, device.name, selectedType)
+                            viewModel.connectUsbHardware(
+                                device.id.toIntOrNull() ?: -1,
+                                device.name,
+                                selectedType,
+                                SerialConnectionSettings(baudRate = baudRate, dataBits = dataBits, stopBits = stopBits, parity = parity)
+                            )
                             showDialog = true
                         }) {
                             Text("اتصال", fontSize = 11.sp)
