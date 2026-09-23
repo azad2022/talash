@@ -5,6 +5,11 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 object HardwareBarcodeBus {
+    @Volatile
+    var enabled: Boolean = false
+
+    fun setEnabled(value: Boolean) { enabled = value }
+
     private const val MIN_LENGTH = 4
     private const val MAX_INTER_KEY_DELAY_MS = 120L
 
@@ -16,7 +21,7 @@ object HardwareBarcodeBus {
 
     @Synchronized
     fun onKeyEvent(event: KeyEvent) {
-        if (event.action != KeyEvent.ACTION_UP) return
+        if (!enabled || event.action != KeyEvent.ACTION_UP) return
         val now = System.currentTimeMillis()
 
         if (event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_TAB) {
