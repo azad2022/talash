@@ -1395,6 +1395,11 @@ fun WarehouseScreen(
     var selectedProductToBarcodePrint by remember { mutableStateOf<Product?>(null) }
     var isScannerOpen by remember { mutableStateOf(false) }
     var outOfStockProductForDialog by remember { mutableStateOf<Product?>(null) }
+    LaunchedEffect(Unit) {
+        com.example.hardware.barcode.HardwareBarcodeBus.scans.collect { code ->
+            searchQuery = code
+        }
+    }
 
     // Add state variables
     var addName by remember { mutableStateOf("") }
@@ -2544,6 +2549,19 @@ fun InvoiceScreen(
     var weightedItemCategory by remember { mutableStateOf("انگشتر") }
     var weightedItemWeight by remember { mutableStateOf("") }
     var isInvoiceScannerOpen by remember { mutableStateOf(false) }
+    val hardwareStableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
+
+    LaunchedEffect(productsList) {
+        com.example.hardware.barcode.HardwareBarcodeBus.scans.collect { code ->
+            when (val resolved = com.example.domain.util.BarcodeResolver.resolveProductExact(code, productsList)) {
+                is com.example.domain.util.ProductResolution.Single -> viewModel.addItemToDraft(resolved.product)
+                is com.example.domain.util.ProductResolution.Ambiguous ->
+                    Toast.makeText(context, "این بارکد برای چند کالا مشترک است و فروش متوقف شد.", Toast.LENGTH_LONG).show()
+                com.example.domain.util.ProductResolution.NotFound ->
+                    Toast.makeText(context, "کالایی با این بارکد پیدا نشد.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // State Variables for Checkout Drawer
     var isCustomerSelectorExpand by remember { mutableStateOf(false) }
@@ -2635,6 +2653,55 @@ fun InvoiceScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.35f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("اتصال ترازو و وزن سریع", color = MetallicGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = weightedItemWeight,
+                        onValueChange = { weightedItemWeight = it },
+                        label = { Text("وزن (گرم)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                val stable = hardwareStableWeight
+                                if (stable != null) {
+                                    weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
+                                } else {
+                                    Toast.makeText(context, "هنوز وزن پایدار از ترازو دریافت نشده است.", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("ثبت وزن پایدار", fontSize = 11.sp)
+                        }
+                        Text(
+                            hardwareStableWeight?.grams?.stripTrailingZeros()?.toPlainString()?.plus(" گرم ✓") ?: "ترازو متصل نیست/وزن پایدار ندارد",
+                            color = if (hardwareStableWeight != null) StatusGreen else TextGray,
+                            fontSize = 10.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+
             if (isInvoiceScannerOpen) {
                 com.example.ui.components.BarcodeScannerDialog(
                     onDismissRequest = { isInvoiceScannerOpen = false },
@@ -2891,26 +2958,22 @@ fun InvoiceScreen(
                         // Final Invoice registration Trigger
                         Button(
                             onClick = {
-                                if (viewModel.draftCustomer == null) {
-                                    Toast.makeText(context, "لطفاً ابتدا خریدار را مشخص کنید", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    val success = viewModel.submitCurrentDraftInvoice(
-                                        onError = { errorMsg ->
-                                            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-                                        },
-                                        onSuccess = { newInvoiceId ->
-                                            if (newInvoiceId > 0) {
-                                                Toast.makeText(context, "فاکتور با موفقیت صادر شد", Toast.LENGTH_SHORT).show()
-                                                viewModel.showInvoiceReceiptSimulationById(context, newInvoiceId)
-                                                onNavigateToTab?.invoke("reports")
-                                            } else {
-                                                Toast.makeText(context, "خطا در ثبت فاکتور", Toast.LENGTH_SHORT).show()
-                                            }
+                                val success = viewModel.submitCurrentDraftInvoice(
+                                    onError = { errorMsg ->
+                                        Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                    },
+                                    onSuccess = { newInvoiceId ->
+                                        if (newInvoiceId > 0) {
+                                            Toast.makeText(context, "فاکتور با موفقیت صادر شد", Toast.LENGTH_SHORT).show()
+                                            viewModel.showInvoiceReceiptSimulationById(context, newInvoiceId)
+                                            onNavigateToTab?.invoke("reports")
+                                        } else {
+                                            Toast.makeText(context, "خطا در ثبت فاکتور", Toast.LENGTH_SHORT).show()
                                         }
-                                    )
-                                    if (!success) {
-                                        Toast.makeText(context, "خطا در پردازش اطلاعات فاکتور", Toast.LENGTH_SHORT).show()
                                     }
+                                )
+                                if (!success) {
+                                    Toast.makeText(context, "سبد فاکتور خالی است.", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
