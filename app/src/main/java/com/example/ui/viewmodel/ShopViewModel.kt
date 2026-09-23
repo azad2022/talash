@@ -795,6 +795,18 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         hardwareManager?.connectBluetooth(name, address, type)
     }
 
+    fun rememberPrinterDevice(name: String, address: String) {
+        viewModelScope.launch {
+            val user = repository.getOrInitializeUser()
+            repository.updateUser(
+                user.copy(
+                    selectedPrinterName = name,
+                    selectedPrinterAddress = address
+                )
+            )
+        }
+    }
+
     fun usbSerialDevices(): List<com.example.hardware.core.HardwareDevice> =
         hardwareManager?.usbSerialDevices().orEmpty()
 
