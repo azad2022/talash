@@ -9,6 +9,8 @@ import android.os.Environment
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import androidx.core.content.res.ResourcesCompat
+import com.example.R
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -947,7 +949,11 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         }
         viewModelScope.launch(Dispatchers.Default) {
             try {
-                val bitmap = ReceiptRasterRenderer.render(payload, widthPx = widthDots.coerceIn(384, 576))
+                val bitmap = ReceiptRasterRenderer.render(
+                    payload,
+                    widthPx = widthDots.coerceIn(384, 576),
+                    typeface = applicationContext?.let { ResourcesCompat.getFont(it, R.font.vazirmatn) }
+                )
                 val bytes = EscPosEncoder.encodeRaster(bitmap)
                 hardwareManager?.writeFor(HardwareDeviceType.RECEIPT_PRINTER, bytes) { result ->
                     bitmap.recycle()
@@ -991,7 +997,8 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                             GoldLabelFormatter.text(product, barcode),
                             widthPx = (40 * dpi.coerceIn(203, 300) / 25.4f).toInt().coerceAtLeast(1),
                             textSizePx = 20f,
-                            paddingPx = 8
+                            paddingPx = 8,
+                            typeface = applicationContext?.let { ResourcesCompat.getFont(it, R.font.vazirmatn) }
                         )
                         val bytes = EscPosEncoder.encodeRaster(bitmap)
                         hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, bytes) { result ->
