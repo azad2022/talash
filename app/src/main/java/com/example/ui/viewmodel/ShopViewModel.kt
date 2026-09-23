@@ -880,14 +880,21 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         ) ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
     }
 
-    fun printReceiptRasterToHardware(payload: String, onResult: (HardwareResult<Unit>) -> Unit = {}) {
+    fun receiptPaperDots(context: Context): Int =
+        if (context.getSharedPreferences("receipt_prefs", Context.MODE_PRIVATE).getInt("receipt_paper_mm", 80) == 58) 384 else 576
+
+    fun printReceiptRasterToHardware(
+        payload: String,
+        widthDots: Int = 576,
+        onResult: (HardwareResult<Unit>) -> Unit = {}
+    ) {
         if (payload.isBlank()) {
             onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
             return
         }
         viewModelScope.launch(Dispatchers.Default) {
             try {
-                val bitmap = ReceiptRasterRenderer.render(payload)
+                val bitmap = ReceiptRasterRenderer.render(payload, widthPx = widthDots.coerceIn(384, 576))
                 val bytes = EscPosEncoder.encodeRaster(bitmap)
                 hardwareManager?.writeFor(HardwareDeviceType.RECEIPT_PRINTER, bytes) { result ->
                     bitmap.recycle()
@@ -912,12 +919,37 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         onResult: (HardwareResult<Unit>) -> Unit = {}
     ) {
         val barcode = com.example.domain.util.BarcodeResolver.getCanonicalBarcode(product)
-        val bytes = when (protocol) {
-            LabelPrinterProtocol.ZPL -> GoldLabelZplEncoder.encode(product, barcode, dpi = dpi.coerceIn(203, 300))
-            LabelPrinterProtocol.ESC_POS_RASTER -> EscPosEncoder.encodeText(GoldLabelFormatter.text(product, barcode))
+        when (protocol) {
+            LabelPrinterProtocol.ZPL -> {
+                hardwareManager?.writeFor(
+                    HardwareDeviceType.LABEL_PRINTER,
+                    GoldLabelZplEncoder.encode(product, barcode, dpi = dpi.coerceIn(203, 300)),
+                    onResult
+                ) ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+            }
+            LabelPrinterProtocol.ESC_POS_RASTER -> {
+                viewModelScope.launch(Dispatchers.Default) {
+                    try {
+                        val bitmap = ReceiptRasterRenderer.render(
+                            GoldLabelFormatter.text(product, barcode),
+                            widthPx = (40 * dpi.coerceIn(203, 300) / 25.4f).toInt().coerceAtLeast(1),
+                            textSizePx = 20f,
+                            paddingPx = 8
+                        )
+                        val bytes = EscPosEncoder.encodeRaster(bitmap)
+                        hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, bytes) { result ->
+                            bitmap.recycle()
+                            onResult(result)
+                        } ?: run {
+                            bitmap.recycle()
+                            onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+                        }
+                    } catch (e: Exception) {
+                        onResult(HardwareResult.Failure("ساخت تصویر لیبل برای چاپ ناموفق بود.", e))
+                    }
+                }
+            }
         }
-        hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, bytes, onResult)
-            ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
     }
 
     fun compareWeight(expected: BigDecimal, measured: BigDecimal, tolerance: BigDecimal = BigDecimal("0.005")): WeightComparison {
