@@ -4450,6 +4450,7 @@ $textPayload
 
 @Composable
 fun PrinterReceiptSimulatorDialog(
+    viewModel: ShopViewModel,
     payloadText: String,
     onDismiss: () -> Unit
 ) {
@@ -4533,14 +4534,26 @@ fun PrinterReceiptSimulatorDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { printReceipt(context, editedPayload) },
+                        onClick = {
+                            viewModel.printReceiptTextToHardware(editedPayload) { result ->
+                                when (result) {
+                                    is com.example.hardware.core.HardwareResult.Success -> {
+                                        Toast.makeText(context, "ارسال رسید به چاپگر با موفقیت انجام شد.", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    }
+                                    is com.example.hardware.core.HardwareResult.Failure -> {
+                                        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(Icons.Filled.Print, contentDescription = "چاپ واقعی", tint = DarkObsidian, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.Print, contentDescription = "ارسال به چاپگر حرارتی", tint = DarkObsidian, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("پرینت واقعی فاکتور", color = DarkObsidian, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("ارسال به فیش‌پرینتر", color = DarkObsidian, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Button(
