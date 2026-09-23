@@ -12,7 +12,8 @@ data class ReceiptProfile(
     val title: String = "فاکتور فروش معتبر کالا",
     val footer: String = "از خرید و حسن انتخاب شما سپاسگزاریم.",
     val address: String = "آدرس گالری",
-    val paperWidthColumns: Int = 42
+    val paperWidthColumns: Int = 42,
+    val paperWidthDots: Int = 576
 )
 
 object ReceiptFormatter {
