@@ -48,7 +48,8 @@ import java.util.*
 
 class ShopViewModel(private val repository: ShopRepository, appContext: Context? = null) : ViewModel() {
 
-    private val hardwareManager = appContext?.applicationContext?.let { HardwareManager(it, viewModelScope) }
+    private val applicationContext: Context? = appContext?.applicationContext
+    private val hardwareManager = applicationContext?.let { HardwareManager(it, viewModelScope) }
     private val defaultHardwareState = MutableStateFlow(HardwareConnectionState.DISCONNECTED)
     private val defaultStableWeight = MutableStateFlow<com.example.hardware.core.StableWeight?>(null)
     val hardwareConnectionState: StateFlow<HardwareConnectionState> = hardwareManager?.connectionState ?: defaultHardwareState
