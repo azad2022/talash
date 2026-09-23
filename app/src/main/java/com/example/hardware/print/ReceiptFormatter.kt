@@ -41,7 +41,7 @@ object ReceiptFormatter {
             val weight = item.customWeight ?: product?.weightGram ?: BigDecimal.ZERO
             val karat = product?.karat ?: 18
             b.appendLine(name)
-            b.appendLine("عیار: ${karat | وزن: ${formatWeight(weight)} گرم")
+            b.appendLine("عیار: ${karat} | وزن: ${formatWeight(weight)} گرم")
             b.appendLine("تعداد: ${item.quantity} | مبلغ واحد: ${formatMoney(item.unitPrice)} تومان")
             b.appendLine("مبلغ قلم: ${formatMoney(item.total)} تومان")
             b.appendLine(separator)
