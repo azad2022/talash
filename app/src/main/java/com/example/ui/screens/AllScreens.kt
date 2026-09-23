@@ -1525,10 +1525,29 @@ fun WarehouseScreen(
                         ) {
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Filled.Close, contentDescription = "بستن", tint = TextGray, modifier = Modifier.size(14.dp))
+                                    Icon(Icons.Filled.Close, contentDescription = "پاک کردن جستجو", tint = TextGray, modifier = Modifier.size(14.dp))
                                 }
                                 Spacer(Modifier.width(4.dp))
                             }
+
+                            IconButton(
+                                onClick = { hardwareScannerEnabled = !hardwareScannerEnabled },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (hardwareScannerEnabled) StatusGreen.copy(alpha = 0.14f)
+                                        else MetallicGold.copy(alpha = 0.12f)
+                                    )
+                            ) {
+                                Text(
+                                    "HID",
+                                    color = if (hardwareScannerEnabled) StatusGreen else MetallicGold,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
                             IconButton(
                                 onClick = { isScannerOpen = true },
                                 modifier = Modifier
@@ -1538,7 +1557,7 @@ fun WarehouseScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.QrCode,
-                                    contentDescription = "اسکن بارکد",
+                                    contentDescription = "اسکن بارکد با دوربین",
                                     tint = MetallicGold,
                                     modifier = Modifier.size(18.dp)
                                 )
