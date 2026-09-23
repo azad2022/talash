@@ -8,7 +8,15 @@ object HardwareBarcodeBus {
     @Volatile
     var enabled: Boolean = false
 
-    fun setEnabled(value: Boolean) { enabled = value }
+    fun setEnabled(value: Boolean) {
+        enabled = value
+        if (!value) {
+            synchronized(this) {
+                buffer.clear()
+                lastCharAt = 0L
+            }
+        }
+    }
 
     private const val MIN_LENGTH = 4
     private const val MAX_INTER_KEY_DELAY_MS = 120L
