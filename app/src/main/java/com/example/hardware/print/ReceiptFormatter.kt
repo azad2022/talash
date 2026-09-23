@@ -48,7 +48,7 @@ object ReceiptFormatter {
 
         b.appendLine("جمع اقلام: ${formatMoney(invoice.invoice.totalAmount.add(invoice.invoice.discount))} تومان")
         if (invoice.invoice.discount > BigDecimal.ZERO) {
-            b.appendLine("تخفیف: ${{formatMoney(invoice.invoice.discount)} تومان")
+            b.appendLine("تخفیف: ${formatMoney(invoice.invoice.discount)} تومان")
         }
         b.appendLine("مالیات محاسبه‌شده: ${formatMoney(invoice.invoice.tax)} تومان")
         b.appendLine("مبلغ نهایی: ${formatMoney(invoice.invoice.totalAmount)} تومان")
