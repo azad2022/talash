@@ -21,7 +21,7 @@ object GoldLabelFormatter {
         lines += "وزن: ${product.weightGram.setScale(3, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()} گرم"
         lines += "عیار: ${product.karat}"
         if (profile.includePrice) {
-            lines += "قیمت ثبت‌شده: ${{product.purchasePrice.setScale(0, RoundingMode.HALF_UP).toPlainString()}"
+            lines += "قیمت ثبت‌شده: ${product.purchasePrice.setScale(0, RoundingMode.HALF_UP).toPlainString()}"
         }
         if (profile.includeBarcode) lines += canonicalBarcode
         return lines.joinToString("\n")
