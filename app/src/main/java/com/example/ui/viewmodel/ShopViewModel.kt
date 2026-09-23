@@ -26,6 +26,11 @@ import com.example.hardware.core.HardwareResult
 import com.example.hardware.print.EscPosEncoder
 import com.example.hardware.print.GoldLabelFormatter
 import com.example.hardware.print.ReceiptFormatter
+import com.example.hardware.print.ReceiptRasterRenderer
+import com.example.hardware.print.GoldLabelZplEncoder
+import com.example.hardware.print.LabelPrinterProtocol
+import com.example.hardware.scale.WeightComparison
+import com.example.hardware.scale.WeightComparisonEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -48,6 +53,9 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     val hardwareConnectedDevice: StateFlow<com.example.hardware.core.HardwareDevice?> = hardwareManager?.connectedDevice ?: MutableStateFlow(null)
     val hardwareLatestStableWeight: StateFlow<com.example.hardware.core.StableWeight?> = hardwareManager?.latestStableWeight ?: defaultStableWeight
     val hardwareLastError: StateFlow<String?> = hardwareManager?.lastError ?: MutableStateFlow(null)
+    private val defaultComparison = MutableStateFlow<WeightComparison?>(null)
+    var lastWeightComparison: WeightComparison? by mutableStateOf(null)
+        private set
 
 
     // --- SECURITY & PIN AUTHFLOW ---
@@ -771,30 +779,65 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         }
     }
 
-    fun printReceiptTextToHardware(
-        payload: String,
-        onResult: (HardwareResult<Unit>) -> Unit = {}
-    ) {
+    fun printReceiptTextToHardware(payload: String, onResult: (HardwareResult<Unit>) -> Unit = {}) {
         if (payload.isBlank()) {
             onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
             return
         }
-        hardwareManager?.writeFor(HardwareDeviceType.RECEIPT_PRINTER, EscPosEncoder.encodeText(payload), onResult)
-            ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+        hardwareManager?.writeFor(
+            HardwareDeviceType.RECEIPT_PRINTER,
+            EscPosEncoder.encodeText(payload),
+            onResult
+        ) ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
     }
 
-    fun printActiveReceiptToHardware(onResult: (HardwareResult<Unit>) -> Unit = {}) {
-        printReceiptTextToHardware(activePrintJobPayload.orEmpty(), onResult)
+    fun printReceiptRasterToHardware(payload: String, onResult: (HardwareResult<Unit>) -> Unit = {}) {
+        if (payload.isBlank()) {
+            onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
+            return
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val bitmap = ReceiptRasterRenderer.render(payload)
+                val bytes = EscPosEncoder.encodeRaster(bitmap)
+                hardwareManager?.writeFor(HardwareDeviceType.RECEIPT_PRINTER, bytes) { result ->
+                    bitmap.recycle()
+                    onResult(result)
+                } ?: run {
+                    bitmap.recycle()
+                    onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+                }
+            } catch (e: Exception) {
+                onResult(HardwareResult.Failure("ساخت تصویر رسید برای چاپ ناموفق بود.", e))
+            }
+        }
     }
+
+    fun printActiveReceiptToHardware(onResult: (HardwareResult<Unit>) -> Unit = {}) =
+        printReceiptRasterToHardware(activePrintJobPayload.orEmpty(), onResult)
 
     fun printProductLabelToHardware(
         product: Product,
+        protocol: LabelPrinterProtocol = LabelPrinterProtocol.ZPL,
         onResult: (HardwareResult<Unit>) -> Unit = {}
     ) {
         val barcode = com.example.domain.util.BarcodeResolver.getCanonicalBarcode(product)
-        val payload = GoldLabelFormatter.text(product, barcode)
-        hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, EscPosEncoder.encodeText(payload), onResult)
+        val bytes = when (protocol) {
+            LabelPrinterProtocol.ZPL -> GoldLabelZplEncoder.encode(product, barcode)
+            LabelPrinterProtocol.ESC_POS_RASTER -> EscPosEncoder.encodeText(GoldLabelFormatter.text(product, barcode))
+        }
+        hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, bytes, onResult)
             ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+    }
+
+    fun compareWeight(expected: BigDecimal, measured: BigDecimal, tolerance: BigDecimal = BigDecimal("0.005")): WeightComparison {
+        val comparison = WeightComparisonEngine.compare(expected, measured, tolerance)
+        lastWeightComparison = comparison
+        return comparison
+    }
+
+    fun clearWeightComparison() {
+        lastWeightComparison = null
     }
 
     // --- NATIVE PDF EXPORTER (RTL Persian Layouts to Downloads) ---
