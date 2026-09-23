@@ -4564,7 +4564,6 @@ fun PrinterReceiptSimulatorDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var editedPayload by remember { mutableStateOf(payloadText) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -4588,13 +4587,13 @@ fun PrinterReceiptSimulatorDialog(
                 ) {
                     Column {
                         Text(
-                            "رسید کاغذی هوشمند (با قابلیت ویرایش لمسی)",
+                            "پیش‌نمایش نهایی رسید",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.DarkGray
                         )
                         Text(
-                            "روی هر بخش از رسید کلیک کنید تا متن آن را تغییر دهید",
+                            "مقادیر مالی و مشخصات سند دقیقاً مطابق فاکتور ثبت‌شده چاپ می‌شوند",
                             fontSize = 8.sp,
                             color = Color.Gray
                         )
@@ -4606,35 +4605,27 @@ fun PrinterReceiptSimulatorDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Scroll paper body with editable styled monospaced text field
+                // Immutable receipt preview: financial fields must match the saved invoice exactly.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .background(Color.White)
                         .border(1.dp, Color.LightGray)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp)
                 ) {
-                    TextField(
-                        value = editedPayload,
-                        onValueChange = { editedPayload = it },
-                        textStyle = androidx.compose.ui.text.TextStyle(
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = payloadText,
                             fontFamily = com.example.ui.theme.VazirmatnFontFamily,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
                             color = Color.Black,
                             textAlign = TextAlign.Right
-                        ),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.White,
-                            unfocusedContainerColor = Color.White,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent
-                        ),
-                        modifier = Modifier.fillMaxSize()
-                    )
+                        )
+                    }
                 }
-
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Action buttons: 1. Real Print, 2. Mimic cut & dismiss
@@ -4644,7 +4635,7 @@ fun PrinterReceiptSimulatorDialog(
                 ) {
                     Button(
                         onClick = {
-                            viewModel.printReceiptRasterToHardware(editedPayload, viewModel.receiptPaperDots(context)) { result ->
+                            viewModel.printReceiptRasterToHardware(payloadText, viewModel.receiptPaperDots(context)) { result ->
                                 when (result) {
                                     is com.example.hardware.core.HardwareResult.Success -> {
                                         Toast.makeText(context, "ارسال رسید به چاپگر با موفقیت انجام شد.", Toast.LENGTH_SHORT).show()
