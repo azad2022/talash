@@ -16,6 +16,7 @@ import com.example.hardware.core.HardwareDeviceType
 import com.example.hardware.core.HardwareResult
 import com.example.hardware.core.HardwareTransport
 import com.example.hardware.core.HardwareTransportType
+import com.example.hardware.core.SerialConnectionSettings
 import com.example.hardware.core.StableWeight
 import com.example.hardware.scale.ScaleWeightParser
 import com.example.hardware.scale.StableWeightDetector
@@ -113,7 +114,12 @@ class HardwareManager(
         }
     }
 
-    fun connectUsb(deviceId: Int, name: String, type: HardwareDeviceType) {
+    fun connectUsb(
+        deviceId: Int,
+        name: String,
+        type: HardwareDeviceType,
+        settings: SerialConnectionSettings = SerialConnectionSettings()
+    ) {
         scope.launch {
             disconnect()
             val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -137,7 +143,7 @@ class HardwareManager(
                 vendorId = usbDevice.vendorId,
                 productId = usbDevice.productId
             )
-            val usb = UsbSerialTransport(context)
+            val usb = UsbSerialTransport(context, settings)
             transport = usb
             when (val result = usb.connect(device)) {
                 is HardwareResult.Success -> {
