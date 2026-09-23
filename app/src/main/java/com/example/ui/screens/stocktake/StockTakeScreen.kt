@@ -35,6 +35,7 @@ import com.example.ui.components.BarcodeScannerDialog
 import com.example.ui.theme.*
 import com.example.ui.util.JalaliCalendar
 import com.example.ui.viewmodel.ShopViewModel
+import com.example.hardware.barcode.HardwareBarcodeBus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +53,7 @@ fun StockTakeScreen(
     var manualBarcodeInput by remember { mutableStateOf("") }
     var lastScanMessage by remember { mutableStateOf<String?>(null) }
     var lastScanIsSuccess by remember { mutableStateOf(true) }
+    var hardwareScannerEnabled by remember { mutableStateOf(false) }
 
     var showCancelConfirmDialog by remember { mutableStateOf(false) }
     var showReviewReconciliationDialog by remember { mutableStateOf(false) }
@@ -62,6 +64,24 @@ fun StockTakeScreen(
     var selectedFilter by remember { mutableStateOf("ALL") } // ALL, DISCREPANT, COUNTED, UNCOUNTED
 
     val focusManager = LocalFocusManager.current
+
+    DisposableEffect(hardwareScannerEnabled, activeSession?.id) {
+        HardwareBarcodeBus.setEnabled(hardwareScannerEnabled && activeSession != null)
+        onDispose { HardwareBarcodeBus.setEnabled(false) }
+    }
+
+    LaunchedEffect(activeSession?.id, hardwareScannerEnabled) {
+        HardwareBarcodeBus.scans.collect { code ->
+            if (hardwareScannerEnabled && activeSession != null) {
+                viewModel.scanBarcodeForStockTake(code) { res ->
+                    handleScanResult(res) { msg, success ->
+                        lastScanMessage = msg
+                        lastScanIsSuccess = success
+                    }
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -445,6 +465,22 @@ fun StockTakeScreen(
                             modifier = Modifier.height(52.dp)
                         ) {
                             Icon(Icons.Filled.CameraAlt, contentDescription = "دوربین", tint = DarkObsidian)
+                        }
+
+                        Button(
+                            onClick = { hardwareScannerEnabled = !hardwareScannerEnabled },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (hardwareScannerEnabled) StatusGreen else SmokyBronze
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.height(52.dp)
+                        ) {
+                            Text(
+                                if (hardwareScannerEnabled) "HID ✓" else "HID",
+                                color = if (hardwareScannerEnabled) DarkObsidian else MetallicGold,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
                         }
                     }
 
