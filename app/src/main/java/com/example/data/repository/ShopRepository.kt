@@ -256,13 +256,12 @@ class ShopRepository(
             val persistedId = if (product.id == 0) id.toInt() else product.id
             val activeProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
             val canonicalForTarget = BarcodeResolver.getCanonicalBarcode(persistedId, product.customBarcode)
-            val conflictingProducts = activeProducts.filter { candidate ->
-                candidate.id != persistedId &&
-                    BarcodeResolver.getCanonicalBarcode(candidate).trim().equals(canonicalForTarget.trim(), ignoreCase = true)
-            }
-            if (conflictingProducts.isNotEmpty()) {
+            val targetProduct = shopDao.getProductById(persistedId)
+                ?: throw IllegalStateException("کالای ذخیره‌شده قابل بازیابی نیست.")
+            val conflicts = BarcodeResolver.findCanonicalBarcodeConflictsForProduct(targetProduct, activeProducts)
+            if (conflicts.isNotEmpty()) {
                 throw IllegalStateException(
-                    "بارکد «$canonicalForTarget» قبلاً برای کالا ثبت شده است. ابتدا بارکد را یکتا کنید."
+                    "شناسه/بارکد «" + canonicalForTarget + "» با ورودی‌های کالای دیگری تداخل دارد: [" + conflicts.joinToString(", ") + "]. ابتدا آن را یکتا کنید."
                 )
             }
             val action = if (product.id == 0) "افزودن کالا به انبار: " else "بروزرسانی مشخصات کالا: "
