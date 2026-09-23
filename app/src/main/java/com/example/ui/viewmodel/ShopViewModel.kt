@@ -23,6 +23,7 @@ import com.example.hardware.PairedBluetoothDevice
 import com.example.hardware.core.HardwareConnectionState
 import com.example.hardware.core.HardwareDeviceType
 import com.example.hardware.core.HardwareResult
+import com.example.hardware.core.SerialConnectionSettings
 import com.example.hardware.print.EscPosEncoder
 import com.example.hardware.print.GoldLabelFormatter
 import com.example.hardware.print.ReceiptFormatter
@@ -814,9 +815,10 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     fun connectUsbHardware(
         deviceId: Int,
         name: String,
-        type: HardwareDeviceType
+        type: HardwareDeviceType,
+        settings: SerialConnectionSettings = SerialConnectionSettings()
     ) {
-        hardwareManager?.connectUsb(deviceId, name, type)
+        hardwareManager?.connectUsb(deviceId, name, type, settings)
     }
 
     fun disconnectHardware() {
