@@ -1395,8 +1395,9 @@ fun WarehouseScreen(
     var selectedProductToBarcodePrint by remember { mutableStateOf<Product?>(null) }
     var isScannerOpen by remember { mutableStateOf(false) }
     var outOfStockProductForDialog by remember { mutableStateOf<Product?>(null) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(true)
+    var hardwareScannerEnabled by remember { mutableStateOf(false) }
+    androidx.compose.runtime.DisposableEffect(hardwareScannerEnabled) {
+        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(hardwareScannerEnabled)
         onDispose { com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(false) }
     }
 
@@ -2770,8 +2771,10 @@ fun InvoiceScreen(
                     Text("صورت حساب رسمی، تخفیف، انتخاب نوع تسویه نقدی و اقساطی", style = MaterialTheme.typography.bodySmall, color = TextGray)
                 }
                 
-                IconButton(
-                    onClick = { isInvoiceScannerOpen = true },
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { isInvoiceScannerOpen = true },
+
                     modifier = Modifier
                         .size(44.dp)
                         .clip(RoundedCornerShape(12.dp))
@@ -2779,10 +2782,13 @@ fun InvoiceScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.QrCode,
-                        contentDescription = "اسکن بارکد کالا برای ثبت فاکتور سریع",
+                        contentDescription = "اسکن با دوربین",
                         tint = MetallicGold,
                         modifier = Modifier.size(22.dp)
                     )
+                }
+                IconButton(onClick = { hardwareScannerEnabled = !hardwareScannerEnabled }) {
+                    Text(if (hardwareScannerEnabled) "HID" else "HID", color = if (hardwareScannerEnabled) StatusGreen else TextGray, fontSize = 9.sp)
                 }
             }
         }
