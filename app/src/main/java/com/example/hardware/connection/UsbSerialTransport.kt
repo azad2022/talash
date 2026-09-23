@@ -1,6 +1,7 @@
 package com.example.hardware.connection
 
 import android.content.Context
+import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import com.example.hardware.core.HardwareConnectionState
 import com.example.hardware.core.HardwareDevice
@@ -29,6 +30,7 @@ class UsbSerialTransport(
     override val state: StateFlow<HardwareConnectionState> = _state
     private val incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 32)
     private var port: UsbSerialPort? = null
+    private var connection: UsbDeviceConnection? = null
     private var readerJob: Job? = null
 
     override suspend fun connect(device: HardwareDevice): HardwareResult<Unit> {
@@ -51,13 +53,14 @@ class UsbSerialTransport(
                     .firstOrNull { it.device.deviceId == deviceId }
                     ?: return@withContext HardwareResult.Failure("درایور USB Serial سازگار پیدا نشد.")
 
-                val connection = usbManager.openDevice(driver.device)
+                val openedConnection = usbManager.openDevice(driver.device)
                     ?: return@withContext HardwareResult.Failure("امکان بازکردن ارتباط USB وجود ندارد.")
+                connection = openedConnection
 
                 val serialPort = driver.ports.firstOrNull()
                     ?: return@withContext HardwareResult.Failure("پورت Serial در دستگاه USB یافت نشد.")
 
-                serialPort.open(connection)
+                serialPort.open(openedConnection)
                 serialPort.setParameters(settings.baudRate, settings.dataBits, settings.stopBits, settings.parity)
                 port = serialPort
                 _state.value = HardwareConnectionState.CONNECTED
@@ -115,5 +118,7 @@ class UsbSerialTransport(
     private fun closeQuietly() {
         try { port?.close() } catch (_: Exception) {}
         port = null
+        try { connection?.close() } catch (_: Exception) {}
+        connection = null
     }
 }
