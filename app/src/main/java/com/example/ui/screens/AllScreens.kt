@@ -2716,22 +2716,25 @@ fun InvoiceScreen(
                 com.example.ui.components.BarcodeScannerDialog(
                     onDismissRequest = { isInvoiceScannerOpen = false },
                     onBarcodeScanned = { code ->
-                        val matched = productsList.find { prod ->
-                            val derivedBarcode = "G-${prod.id.toString().padStart(6, '0')}"
-                            derivedBarcode.equals(code, ignoreCase = true) || 
-                            prod.customBarcode.equals(code, ignoreCase = true)
-                        }
-                        if (matched != null) {
-                            if (matched.stock > 0) {
-                                viewModel.addItemToDraft(matched, 1)
-                                Toast.makeText(context, "کالای ${matched.name} به فاکتور اضافه شد", Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(context, "کالای ${matched.name} موجودی انبار ندارد!", Toast.LENGTH_LONG).show()
+                        when (val resolved = com.example.domain.util.BarcodeResolver.resolveProductExact(code, productsList)) {
+                            is com.example.domain.util.ProductResolution.Single -> {
+                                val product = resolved.product
+                                if (product.stock > 0) {
+                                    viewModel.addItemToDraft(product, 1)
+                                    Toast.makeText(context, "کالای ${product.name} به فاکتور اضافه شد", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "کالای ${product.name} موجودی انبار ندارد!", Toast.LENGTH_LONG).show()
+                                }
                             }
-                        } else {
-                            Toast.makeText(context, "کالایی با بارکد $code در انبار یافت نشد!", Toast.LENGTH_LONG).show()
+                            is com.example.domain.util.ProductResolution.Ambiguous -> {
+                                Toast.makeText(context, "این بارکد برای چند کالا مشترک است؛ فروش متوقف شد.", Toast.LENGTH_LONG).show()
+                            }
+                            com.example.domain.util.ProductResolution.NotFound -> {
+                                Toast.makeText(context, "کالایی با بارکد $code در انبار یافت نشد!", Toast.LENGTH_LONG).show()
+                            }
                         }
                         isInvoiceScannerOpen = false
+                  
                     }
                 )
             }
