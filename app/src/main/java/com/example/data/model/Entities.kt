@@ -262,7 +262,8 @@ data class SaleItem(
         unitPrice: Double,
         total: Double,
         customWeight: Double? = null,
-        customName: String? = null
+        customName: String? = null,
+        customKarat: Int? = null
     ) : this(
         id = id,
         invoiceId = invoiceId,
@@ -271,7 +272,8 @@ data class SaleItem(
         unitPrice = BigDecimal.valueOf(unitPrice),
         total = BigDecimal.valueOf(total),
         customWeight = customWeight?.let { BigDecimal.valueOf(it) },
-        customName = customName
+        customName = customName,
+        customKarat = customKarat
     )
 }
 
