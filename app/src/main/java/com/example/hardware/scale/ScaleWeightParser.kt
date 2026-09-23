@@ -43,7 +43,6 @@ class StableWeightDetector(
     fun addSample(value: BigDecimal, nowMs: Long = System.currentTimeMillis()): StableWeight? {
         recent.addLast(value)
         while (recent.size > requiredStableSamples) recent.removeFirst()
-        if (recent.size < requiredStableSamples) return null
 
         val min = recent.minOrNull() ?: return null
         val max = recent.maxOrNull() ?: return null
@@ -52,6 +51,7 @@ class StableWeightDetector(
             return null
         }
         if (stableSinceMs == 0L) stableSinceMs = nowMs
+        if (recent.size < requiredStableSamples) return null
 
         val average = recent.fold(BigDecimal.ZERO, BigDecimal::add)
             .divide(BigDecimal.valueOf(recent.size.toLong()), 3, RoundingMode.HALF_UP)
