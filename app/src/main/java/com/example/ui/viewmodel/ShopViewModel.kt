@@ -740,7 +740,8 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                         unitPrice = unitPriceBd,
                         total = draftTotalBd,
                         customWeight = draft.customWeight ?: draft.product.weightGram,
-                        customName = draft.product.name
+                        customName = draft.product.name,
+                        customKarat = draft.product.karat
                     )
                 }
 
@@ -874,21 +875,28 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     var isShowingPrinterReceiptSimulation by mutableStateOf(false)
 
     fun queueInvoicePrintReceipt(context: Context, invoice: InvoiceWithDetails) {
-        val prefs = context.getSharedPreferences("receipt_prefs", Context.MODE_PRIVATE)
-        val profile = com.example.hardware.print.ReceiptProfile(
-            shopName = prefs.getString("receipt_shop_name", "گالری طلای گیلدار (شعبه مرکزی)") ?: "گالری طلای گیلدار (شعبه مرکزی)",
-            title = prefs.getString("receipt_title", "فاکتور فروش معتبر کالا") ?: "فاکتور فروش معتبر کالا",
-            footer = prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم.",
-            address = prefs.getString("receipt_address", "آدرس گالری") ?: "آدرس گالری"
-        )
-        activePrintJobPayload = ReceiptFormatter.format(
-            invoice = invoice,
-            productsById = products.value.associateBy { it.id },
-            profile = profile
-        )
-        isShowingPrinterReceiptSimulation = true
         viewModelScope.launch {
-            repository.logAction("RECEIPT_PREVIEW_READY", "پیش‌نمایش رسید داده‌محور فاکتور شماره ${invoice.invoice.id}")
+            val prefs = context.getSharedPreferences("receipt_prefs", Context.MODE_PRIVATE)
+            val paperMm = prefs.getInt("receipt_paper_mm", 80)
+            val profile = ReceiptProfile(
+                shopName = prefs.getString("receipt_shop_name", "گالری طلای گیلدار (شعبه مرکزی)") ?: "گالری طلای گیلدار (شعبه مرکزی)",
+                title = prefs.getString("receipt_title", "فاکتور فروش معتبر کالا") ?: "فاکتور فروش معتبر کالا",
+                footer = prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم.",
+                address = prefs.getString("receipt_address", "آدرس گالری") ?: "آدرس گالری",
+                paperWidthColumns = if (paperMm == 58) 32 else 42,
+                paperWidthDots = if (paperMm == 58) 384 else 576
+            )
+            val productsById = repository.getAllProductsForReceiptSync().associateBy { it.id }
+            activePrintJobPayload = ReceiptFormatter.format(
+                invoice = invoice,
+                productsById = productsById,
+                profile = profile
+            )
+            isShowingPrinterReceiptSimulation = true
+            repository.logAction(
+                "RECEIPT_PREVIEW_READY",
+                "پیش‌نمایش رسید داده‌محور فاکتور شماره ${invoice.invoice.id}"
+            )
         }
     }
 
