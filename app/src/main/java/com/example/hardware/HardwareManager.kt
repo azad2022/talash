@@ -260,6 +260,7 @@ class HardwareManager(
     private fun feedScaleValue(line: String) {
         val parsed = ScaleWeightParser.parse(line) ?: return
         val normalized = ScaleWeightParser.normalizeGrams(parsed, detectUnit(line)) ?: return
+        if (normalized <= BigDecimal.ZERO) return
         val stable = weightDetector.addSample(normalized) ?: return
         _latestStableWeight.value = stable
     }
