@@ -34,6 +34,27 @@ class ScaleAndReceiptEngineTest {
     }
 
     @Test
+    fun detector_does_not_declare_stable_before_time_threshold() {
+        val detector = StableWeightDetector(BigDecimal("0.005"), 4, 300L)
+        assertEquals(null, detector.addSample(BigDecimal("3.420"), 0L))
+        assertEquals(null, detector.addSample(BigDecimal("3.420"), 50L))
+        assertEquals(null, detector.addSample(BigDecimal("3.420"), 100L))
+        assertEquals(null, detector.addSample(BigDecimal("3.420"), 200L))
+        assertEquals(null, detector.addSample(BigDecimal("3.420"), 299L))
+        assertNotNull(detector.addSample(BigDecimal("3.420"), 300L))
+    }
+
+    @Test
+    fun detector_resets_stability_after_outlier() {
+        val detector = StableWeightDetector(BigDecimal("0.005"), 4, 300L)
+        detector.addSample(BigDecimal("3.420"), 0L)
+        detector.addSample(BigDecimal("3.420"), 100L)
+        detector.addSample(BigDecimal("3.420"), 200L)
+        assertEquals(null, detector.addSample(BigDecimal("3.450"), 300L))
+        assertEquals(null, detector.addSample(BigDecimal("3.420"), 400L))
+    }
+
+    @Test
     fun receipt_uses_product_karat_and_item_weight() {
         val product = Product(
             id = 42,
