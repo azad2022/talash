@@ -95,7 +95,12 @@ class BluetoothSppTransport(private val context: Context) : HardwareTransport {
             try {
                 while (currentCoroutineContext().isActive && activeSocket.isConnected) {
                     val read = activeSocket.inputStream.read(buffer)
-                    if (read <= 0) break
+                    if (read <= 0) {
+                        if (_state.value == HardwareConnectionState.CONNECTED) {
+                            _state.value = HardwareConnectionState.DISCONNECTED
+                        }
+                        break
+                    }
                     incoming.emit(buffer.copyOf(read))
                 }
             } catch (_: Exception) {
