@@ -2417,8 +2417,28 @@ fun WarehouseScreen(
                             BarcodeGenerator.generateQRCodeBitmap(barcodeStr, width = 280, height = 280)
                         }
 
+                        var labelDpi by remember { mutableStateOf(203) }
                         var selectedBarcodeTab by remember { mutableStateOf(0) } // 0 = Barcode (CODE_128), 1 = QR Code
 
+                        Text("رزولوشن لیبل", color = TextWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(203, 300).forEach { dpi ->
+                                val selected = labelDpi == dpi
+                                Button(
+                                    onClick = { labelDpi = dpi },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (selected) MetallicGold else SmokyBronze,
+                                        contentColor = if (selected) DarkObsidian else TextWhite
+                                    )
+                                ) {
+                                    Text(dpi.toString() + " DPI", fontSize = 11.sp)
+                                }
+                            }
+                        }
                         TabRow(
                             selectedTabIndex = selectedBarcodeTab,
                             containerColor = Color.Transparent,
@@ -2503,7 +2523,7 @@ fun WarehouseScreen(
                         ) {
                             Button(
                                 onClick = {
-                                    viewModel.printProductLabelToHardware(product) { result ->
+                                    viewModel.printProductLabelToHardware(product, dpi = labelDpi) { result ->
                                         when (result) {
                                             is com.example.hardware.core.HardwareResult.Success ->
                                                 Toast.makeText(context, "اتیکت به چاپگر ارسال شد.", Toast.LENGTH_SHORT).show()
