@@ -495,8 +495,9 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     data class InvoiceItemDraft(
         val product: Product,
         val qty: Int,
-        val customGramPrice: Double, // customized based on daily gold rate + wage calculation
-        val exactSalePrice: Double
+        val customGramPrice: Double,
+        val exactSalePrice: Double,
+        val customWeight: BigDecimal? = null
     )
 
     fun clearInvoiceCart() {
@@ -511,7 +512,6 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     fun addItemToDraft(product: Product, quantity: Int = 1) {
         viewModelScope.launch {
             val user = repository.getOrInitializeUser()
-            // Estimate price based on daily base price / live category price
             val estimatedPrice = product.calculateAssetValue(
                 dailyPrice18k = user.dailyGoldPrice.toDouble(),
                 rateGold24k = rateGold24k,
@@ -529,20 +529,17 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                 rateCurrencyGbp = rateCurrencyGbp,
                 taxRate = user.taxPercent.toDouble()
             )
-            val unitPriceBd = java.math.BigDecimal.valueOf(estimatedPrice).setScale(0, java.math.RoundingMode.HALF_UP)
+            val unitPriceBd = BigDecimal.valueOf(estimatedPrice).setScale(0, RoundingMode.HALF_UP)
             val index = draftItems.indexOfFirst { it.product.id == product.id }
             if (index >= 0) {
                 val current = draftItems[index]
                 val newQty = current.qty + quantity
-                val newTotalBd = unitPriceBd.multiply(java.math.BigDecimal.valueOf(newQty.toLong())).setScale(0, java.math.RoundingMode.HALF_UP)
-                draftItems[index] = current.copy(
-                    qty = newQty,
-                    exactSalePrice = newTotalBd.toDouble()
-                )
+                val newTotalBd = unitPriceBd.multiply(BigDecimal.valueOf(newQty.toLong())).setScale(0, RoundingMode.HALF_UP)
+                draftItems[index] = current.copy(qty = newQty, exactSalePrice = newTotalBd.toDouble())
             } else {
-                val totalBd = unitPriceBd.multiply(java.math.BigDecimal.valueOf(quantity.toLong())).setScale(0, java.math.RoundingMode.HALF_UP)
+                val totalBd = unitPriceBd.multiply(BigDecimal.valueOf(quantity.toLong())).setScale(0, RoundingMode.HALF_UP)
                 val customGramPriceBd = if (product.weightGram > BigDecimal.ZERO) {
-                    unitPriceBd.divide(product.weightGram.setScale(3, java.math.RoundingMode.HALF_UP), 0, java.math.RoundingMode.HALF_UP)
+                    unitPriceBd.divide(product.weightGram.setScale(3, RoundingMode.HALF_UP), 0, RoundingMode.HALF_UP)
                 } else {
                     unitPriceBd
                 }
@@ -551,10 +548,46 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                         product = product,
                         qty = quantity,
                         customGramPrice = customGramPriceBd.toDouble(),
-                        exactSalePrice = totalBd.toDouble()
+                        exactSalePrice = totalBd.toDouble(),
+                        customWeight = null
                     )
                 )
             }
+        }
+    }
+
+    fun applyStableWeightToDraft(productId: Int, measuredWeight: BigDecimal) {
+        if (measuredWeight <= BigDecimal.ZERO) return
+        viewModelScope.launch {
+            val index = draftItems.indexOfFirst { it.product.id == productId }
+            if (index < 0) return@launch
+            val current = draftItems[index]
+            val user = repository.getOrInitializeUser()
+            val weightedProduct = current.product.copy(weightGram = measuredWeight)
+            val unitPrice = weightedProduct.calculateAssetValue(
+                dailyPrice18k = user.dailyGoldPrice.toDouble(),
+                rateGold24k = rateGold24k,
+                rateGoldMelted = rateGoldMelted,
+                rateGoldOunce = rateGoldOunce,
+                rateCoin1g = rateCoin1g,
+                rateCoinQuarter = rateCoinQuarter,
+                rateCoinHalf = rateCoinHalf,
+                rateCoinEmami = rateCoinEmami,
+                rateCoinBahar = rateCoinBahar,
+                rateCurrencyUsd = rateCurrencyUsd,
+                rateCurrencyTether = rateCurrencyTether,
+                rateCurrencyEur = rateCurrencyEur,
+                rateCurrencyAed = rateCurrencyAed,
+                rateCurrencyGbp = rateCurrencyGbp,
+                taxRate = user.taxPercent.toDouble()
+            )
+            val unitPriceBd = BigDecimal.valueOf(unitPrice).setScale(0, RoundingMode.HALF_UP)
+            val total = unitPriceBd.multiply(BigDecimal.valueOf(current.qty.toLong())).setScale(0, RoundingMode.HALF_UP)
+            draftItems[index] = current.copy(
+                customGramPrice = if (measuredWeight > BigDecimal.ZERO) unitPriceBd.divide(measuredWeight, 0, RoundingMode.HALF_UP).toDouble() else current.customGramPrice,
+                exactSalePrice = total.toDouble(),
+                customWeight = measuredWeight
+            )
         }
     }
 
@@ -600,7 +633,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                         quantity = draft.qty,
                         unitPrice = unitPriceBd,
                         total = draftTotalBd,
-                        customWeight = draft.product.weightGram,
+                        customWeight = draft.customWeight ?: draft.product.weightGram,
                         customName = draft.product.name
                     )
                 }
