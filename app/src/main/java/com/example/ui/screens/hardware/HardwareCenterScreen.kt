@@ -61,6 +61,7 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
     var pairedDevices by remember { mutableStateOf(viewModel.pairedBluetoothDevices()) }
+    var usbDevices by remember { mutableStateOf(viewModel.usbSerialDevices()) }
     var selectedType by remember { mutableStateOf(HardwareDeviceType.SCALE) }
     var showDialog by remember { mutableStateOf(false) }
     var lastScan by remember { mutableStateOf<String?>(null) }
@@ -158,6 +159,45 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
                     }
                 }
             }
+            item {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SmokyCard)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("تجهیزات USB / Serial", color = MetallicGold, fontSize = 13.sp)
+                        Button(
+                            onClick = { usbDevices = viewModel.usbSerialDevices() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("جستجوی تجهیزات USB")
+                        }
+                    }
+                }
+            }
+
+            items(usbDevices) { device ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SmokyBronze),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(device.name, color = TextWhite, fontSize = 12.sp)
+                            Text("USB Serial • " + (device.vendorId?.toString() ?: "-") + ":" + (device.productId?.toString() ?: "-"), color = TextGray, fontSize = 10.sp)
+                        }
+                        Button(onClick = {
+                            viewModel.connectUsbHardware(device.id.toIntOrNull() ?: -1, device.name, selectedType)
+                            showDialog = true
+                        }) {
+                            Text("اتصال", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
             item {
                 Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SmokyCard)) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
