@@ -2557,10 +2557,11 @@ fun InvoiceScreen(
     var weightedItemCategory by remember { mutableStateOf("انگشتر") }
     var weightedItemWeight by remember { mutableStateOf("") }
     var isInvoiceScannerOpen by remember { mutableStateOf(false) }
+    var hardwareScannerEnabled by remember { mutableStateOf(false) }
     val hardwareStableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
 
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(true)
+    androidx.compose.runtime.DisposableEffect(hardwareScannerEnabled) {
+        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(hardwareScannerEnabled)
         onDispose { com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(false) }
     }
 
