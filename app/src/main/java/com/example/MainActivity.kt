@@ -802,6 +802,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
     // PRINT BILL SIMULATOR DIALOG OVERLAY
     if (viewModel.isShowingPrinterReceiptSimulation && viewModel.activePrintJobPayload != null) {
         PrinterReceiptSimulatorDialog(
+            viewModel = viewModel,
             payloadText = viewModel.activePrintJobPayload ?: "",
             onDismiss = {
                 viewModel.isShowingPrinterReceiptSimulation = false
