@@ -2502,12 +2502,14 @@ fun WarehouseScreen(
                         ) {
                             Button(
                                 onClick = {
-                                    val printMsg = if (userConfig?.selectedPrinterName != null) {
-                                        "برچسب بارکد $barcodeStr با موفقیت به چاپگر ${userConfig?.selectedPrinterName} ارسال شد"
-                                    } else {
-                                        "برچسب بارکد تولید شد. چاپگر متصل نیست. لطفاً در بخش تنظیمات چاپگر حرارتی را تنظیم کنید"
+                                    viewModel.printProductLabelToHardware(product) { result ->
+                                        when (result) {
+                                            is com.example.hardware.core.HardwareResult.Success ->
+                                                Toast.makeText(context, "اتیکت به چاپگر ارسال شد.", Toast.LENGTH_SHORT).show()
+                                            is com.example.hardware.core.HardwareResult.Failure ->
+                                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                        }
                                     }
-                                    Toast.makeText(context, printMsg, Toast.LENGTH_LONG).show()
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
                                 shape = RoundedCornerShape(8.dp),
@@ -2515,7 +2517,7 @@ fun WarehouseScreen(
                             ) {
                                 Icon(Icons.Filled.Print, contentDescription = null, tint = DarkObsidian, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("چاپ مستقیم برچسب", color = DarkObsidian, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("ارسال به لیبل‌پرینتر", color = DarkObsidian, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
 
                             Button(
