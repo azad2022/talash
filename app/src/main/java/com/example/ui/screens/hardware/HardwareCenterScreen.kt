@@ -67,6 +67,7 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
     var selectedType by remember { mutableStateOf(HardwareDeviceType.SCALE) }
     var showDialog by remember { mutableStateOf(false) }
     var lastScan by remember { mutableStateOf<String?>(null) }
+    var hardwareScannerEnabled by remember { mutableStateOf(false) }
     var baudRate by remember { mutableStateOf(9600) }
     var dataBits by remember { mutableStateOf(8) }
     var parity by remember { mutableStateOf(0) }
@@ -75,8 +76,8 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         pairedDevices = viewModel.pairedBluetoothDevices()
     }
-    DisposableEffect(Unit) {
-        HardwareBarcodeBus.setEnabled(true)
+    DisposableEffect(hardwareScannerEnabled) {
+        HardwareBarcodeBus.setEnabled(hardwareScannerEnabled)
         onDispose { HardwareBarcodeBus.setEnabled(false) }
     }
 
@@ -281,13 +282,36 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
                 }
             }
             item {
-                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SmokyCard)) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SmokyCard)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text("بارکدخوان فیزیکی", color = MetallicGold, fontSize = 13.sp)
-                        Text(lastScan ?: "اسکنر Keyboard/HID در انتظار ورودی است.", color = TextGray, fontSize = 11.sp)
+                        Text(
+                            if (hardwareScannerEnabled) "حالت دریافت اسکن فعال است."
+                            else "حالت دریافت اسکن خاموش است.",
+                            color = if (hardwareScannerEnabled) StatusGreen else TextGray,
+                            fontSize = 10.sp
+                        )
+                        Button(
+                            onClick = { hardwareScannerEnabled = !hardwareScannerEnabled },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (hardwareScannerEnabled) "خاموش کردن HID" else "فعال کردن HID")
+                        }
+                        Text(
+                            lastScan?.let { "آخرین اسکن: $it" } ?: "آخرین اسکن: —",
+                            color = TextWhite,
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }
+        }
         }
     }
     if (showDialog) {
