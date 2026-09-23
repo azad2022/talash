@@ -823,9 +823,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     }
 
     fun disconnectHardware() {
-        hardwareManager?.let { manager ->
-            viewModelScope.launch { manager.disconnect() }
-        }
+        hardwareManager?.disconnect()
     }
 
     fun printReceiptTextToHardware(payload: String, onResult: (HardwareResult<Unit>) -> Unit = {}) {
@@ -888,6 +886,11 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
 
     fun clearWeightComparison() {
         lastWeightComparison = null
+    }
+
+    override fun onCleared() {
+        hardwareManager?.disconnect()
+        super.onCleared()
     }
 
     // --- NATIVE PDF EXPORTER (RTL Persian Layouts to Downloads) ---
@@ -1329,3 +1332,4 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         }
     }
 }
+
