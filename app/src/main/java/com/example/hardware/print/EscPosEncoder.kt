@@ -2,8 +2,6 @@ package com.example.hardware.print
 
 import android.graphics.Bitmap
 import java.io.ByteArrayOutputStream
-import kotlin.math.ceil
-
 object EscPosEncoder {
     private val INIT = byteArrayOf(0x1B, 0x40)
     private val CUT = byteArrayOf(0x1D, 0x56, 0x00)
@@ -49,4 +47,5 @@ object EscPosEncoder {
             write(byteArrayOf(0x0A, 0x0A, 0x0A))
             write(CUT)
         }.toByteArray()
-    }}
+    }
+}
