@@ -54,6 +54,8 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     private val defaultStableWeight = MutableStateFlow<com.example.hardware.core.StableWeight?>(null)
     val hardwareConnectionState: StateFlow<HardwareConnectionState> = hardwareManager?.connectionState ?: defaultHardwareState
     val hardwareConnectedDevice: StateFlow<com.example.hardware.core.HardwareDevice?> = hardwareManager?.connectedDevice ?: MutableStateFlow(null)
+    val hardwareConnectedDevices: StateFlow<Map<HardwareDeviceType, com.example.hardware.core.HardwareDevice>> =
+        hardwareManager?.hardwareConnectedDevices ?: MutableStateFlow(emptyMap())
     val hardwareLatestStableWeight: StateFlow<com.example.hardware.core.StableWeight?> = hardwareManager?.latestStableWeight ?: defaultStableWeight
     val hardwareLastError: StateFlow<String?> = hardwareManager?.lastError ?: MutableStateFlow(null)
     private val defaultComparison = MutableStateFlow<WeightComparison?>(null)
@@ -494,6 +496,8 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     var draftDiscountInput by mutableStateOf("0")
     var draftPrepaymentInput by mutableStateOf("0")
     var draftInstallmentsCountInput by mutableStateOf("3")
+    var isInvoiceSubmissionInProgress by mutableStateOf(false)
+        private set
 
     data class InvoiceItemDraft(
         val product: Product,
@@ -615,7 +619,12 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         onError: ((String) -> Unit)? = null,
         onSuccess: (Int) -> Unit
     ): Boolean {
+        if (isInvoiceSubmissionInProgress) {
+            onError?.invoke("ثبت فاکتور دیگری در حال انجام است.")
+            return false
+        }
         if (draftItems.isEmpty()) return false
+        isInvoiceSubmissionInProgress = true
         val customerId = draftCustomer?.id ?: 0
 
         val discVal = draftDiscountInput.toDoubleOrNull() ?: 0.0
@@ -742,6 +751,8 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                 onSuccess(generatedInvoiceId)
             } catch (e: Exception) {
                 onError?.invoke(e.localizedMessage ?: e.message ?: "خطا در ثبت فاکتور")
+            } finally {
+                isInvoiceSubmissionInProgress = false
             }
         }
 
