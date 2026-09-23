@@ -431,6 +431,9 @@ class DailyClosingAndStockTakeIntegrityTest {
         val applyFail = repository.applyStockTakeAdjustments(session.id)
         assertTrue(applyFail.isFailure)
 
+        // Must count before resolve, because isCounted=false blocks resolve
+        repository.manualUpdateStockTakeItemCount(session.id, prod2, 3)
+
         // Resolve new item
         repository.resolveStockTakeItemReview(session.id, prod2, 3)
 
@@ -557,5 +560,161 @@ class DailyClosingAndStockTakeIntegrityTest {
         val ambiguous = result as StockTakeScanResult.Ambiguous
         assertEquals("SHARED-BC", ambiguous.barcode)
         assertEquals(2, ambiguous.matchedProductNames.size)
+    }
+
+    @Test
+    fun `direct resolve without count fails and leaves isCounted false and count unchanged`() = runTest {
+        val session = repository.startStockTakeSession().getOrThrow()
+
+        // Insert new product during session
+        val newProd = Product(
+            name = "پلاک طلا جدید",
+            category = "طلا",
+            weightGram = BigDecimal("2.5"),
+            wagePrice = BigDecimal.ZERO,
+            wageType = "FIXED",
+            customBarcode = "NEW-PROD-BC",
+            stock = 5
+        )
+        val newProdId = shopDao.insertProduct(newProd).toInt()
+
+        // prepareReconciliationReview adds the new product with NEW_PRODUCT_DURING_SESSION and isCounted = false
+        val reviewItems = repository.prepareReconciliationReview(session.id).getOrThrow()
+        val newItem = reviewItems.first { it.productId == newProdId }
+        assertFalse(newItem.isCounted)
+        assertEquals(0, newItem.countedStock)
+        assertEquals("NEW_PRODUCT_DURING_SESSION", newItem.status)
+
+        // Attempt direct resolve without count (verifiedCount = 3)
+        val resolveRes = repository.resolveStockTakeItemReview(session.id, newProdId, 3)
+        assertTrue(resolveRes.isFailure)
+
+        // Verify state is untouched: isCounted is still false, countedStock is still 0
+        val persistedItem = shopDao.getStockTakeItemByProduct(session.id, newProdId)!!
+        assertFalse(persistedItem.isCounted)
+        assertEquals(0, persistedItem.countedStock)
+    }
+
+    @Test
+    fun `explicit zero count allows successful resolve and preserves zero count and isCounted true`() = runTest {
+        val session = repository.startStockTakeSession().getOrThrow()
+
+        val newProd = Product(
+            name = "گوشواره میخی جدید",
+            category = "طلا",
+            weightGram = BigDecimal("1.2"),
+            wagePrice = BigDecimal.ZERO,
+            wageType = "FIXED",
+            customBarcode = "EAR-NEW-BC",
+            stock = 2
+        )
+        val newProdId = shopDao.insertProduct(newProd).toInt()
+
+        repository.prepareReconciliationReview(session.id).getOrThrow()
+        val beforeCountItem = shopDao.getStockTakeItemByProduct(session.id, newProdId)!!
+        assertFalse(beforeCountItem.isCounted)
+
+        // Explicit manual update of 0
+        val manualRes = repository.manualUpdateStockTakeItemCount(session.id, newProdId, 0)
+        assertTrue(manualRes.isSuccess)
+        val manualItem = manualRes.getOrThrow()
+        assertEquals(0, manualItem.countedStock)
+        assertTrue(manualItem.isCounted)
+
+        // Resolve now succeeds with verifiedCount = 0
+        val resolveRes = repository.resolveStockTakeItemReview(session.id, newProdId, 0)
+        assertTrue(resolveRes.isSuccess)
+        val resolvedItem = resolveRes.getOrThrow()
+        assertEquals(0, resolvedItem.countedStock)
+        assertTrue(resolvedItem.isCounted)
+        assertEquals("DISCREPANCY", resolvedItem.status) // counted 0 vs stock 2
+    }
+
+    @Test
+    fun `REVIEW_REQUIRED recovers to IN_PROGRESS when barcode collision is fixed and all items counted`() = runTest {
+        val prodA = shopDao.insertProduct(Product(name = "گردنبند الف", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "COL-A", stock = 2)).toInt()
+        val prodB = shopDao.insertProduct(Product(name = "گردنبند ب", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "COL-B", stock = 3)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+        assertEquals("IN_PROGRESS", session.status)
+
+        // Count both items
+        repository.manualUpdateStockTakeItemCount(session.id, prodA, 2)
+        repository.manualUpdateStockTakeItemCount(session.id, prodB, 3)
+
+        // Introduce collision during active session by updating Product B's barcode to match Product A
+        val productBToCollide = shopDao.getProductById(prodB)!!
+        shopDao.insertProduct(productBToCollide.copy(customBarcode = "COL-A"))
+
+        // Review detects collision -> session becomes REVIEW_REQUIRED
+        val review1 = repository.prepareReconciliationReview(session.id).getOrThrow()
+        val sessionAfterCollision = shopDao.getStockTakeSessionById(session.id)!!
+        assertEquals("REVIEW_REQUIRED", sessionAfterCollision.status)
+
+        // Fix collision outside of stock take by editing Product B's barcode
+        val productB = shopDao.getProductById(prodB)!!
+        shopDao.insertProduct(productB.copy(customBarcode = "COL-B-FIXED"))
+
+        // Re-run prepareReconciliationReview -> collision is gone, no other blockers exist
+        val review2 = repository.prepareReconciliationReview(session.id).getOrThrow()
+        val sessionRecovered = shopDao.getStockTakeSessionById(session.id)!!
+        assertEquals("IN_PROGRESS", sessionRecovered.status)
+
+        // Finalize should succeed
+        val finalizeRes = repository.applyStockTakeAdjustments(session.id)
+        assertTrue(finalizeRes.isSuccess)
+        val finalizedSession = shopDao.getStockTakeSessionById(session.id)!!
+        assertEquals("COMPLETED", finalizedSession.status)
+    }
+
+    @Test
+    fun `REVIEW_REQUIRED remains when an uncounted item blocker exists`() = runTest {
+        val prod1 = shopDao.insertProduct(Product(name = "دستبند چرمی ۱", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "BRAC-1", stock = 1)).toInt()
+        val prod2 = shopDao.insertProduct(Product(name = "دستبند چرمی ۲", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "BRAC-2", stock = 1)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+
+        // Count only item 1, leave item 2 uncounted
+        repository.manualUpdateStockTakeItemCount(session.id, prod1, 1)
+
+        // Review runs: item 2 is uncounted, so session becomes REVIEW_REQUIRED
+        val review = repository.prepareReconciliationReview(session.id).getOrThrow()
+        val sessionStatus = shopDao.getStockTakeSessionById(session.id)!!
+        assertEquals("REVIEW_REQUIRED", sessionStatus.status)
+
+        // Subsequent prepareReconciliationReview keeps REVIEW_REQUIRED because item 2 is still UNCOUNTED
+        val review2 = repository.prepareReconciliationReview(session.id).getOrThrow()
+        val sessionStatus2 = shopDao.getStockTakeSessionById(session.id)!!
+        assertEquals("REVIEW_REQUIRED", sessionStatus2.status)
+    }
+
+    @Test
+    fun `terminal sessions COMPLETED and CANCELLED never transition to IN_PROGRESS via review`() = runTest {
+        val prod = shopDao.insertProduct(Product(name = "سکه پارسیان", category = "سکه", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "PARS-1", stock = 4)).toInt()
+
+        // 1. COMPLETED session
+        val session1 = repository.startStockTakeSession().getOrThrow()
+        repository.manualUpdateStockTakeItemCount(session1.id, prod, 4)
+        repository.prepareReconciliationReview(session1.id)
+        val applyRes = repository.applyStockTakeAdjustments(session1.id)
+        assertTrue(applyRes.isSuccess)
+        val completedSession = shopDao.getStockTakeSessionById(session1.id)!!
+        assertEquals("COMPLETED", completedSession.status)
+
+        // Run review on completed session
+        repository.prepareReconciliationReview(session1.id)
+        val sessionAfterReview = shopDao.getStockTakeSessionById(session1.id)!!
+        assertEquals("COMPLETED", sessionAfterReview.status)
+
+        // 2. CANCELLED session
+        val session2 = repository.startStockTakeSession().getOrThrow()
+        repository.cancelStockTakeSession(session2.id)
+        val cancelledSession = shopDao.getStockTakeSessionById(session2.id)!!
+        assertEquals("CANCELLED", cancelledSession.status)
+
+        // Run review on cancelled session
+        repository.prepareReconciliationReview(session2.id)
+        val sessionAfterReview2 = shopDao.getStockTakeSessionById(session2.id)!!
+        assertEquals("CANCELLED", sessionAfterReview2.status)
     }
 }

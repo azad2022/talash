@@ -929,6 +929,12 @@ class ShopRepository(
                     val session = shopDao.getStockTakeSessionById(sessionId)
                         ?: throw IllegalArgumentException("نشست انبارگردانی یافت نشد: $sessionId")
 
+                    // Terminal states (COMPLETED, CANCELLED) MUST NEVER transition back to IN_PROGRESS or be modified
+                    val isTerminal = session.status == "COMPLETED" || session.status == "CANCELLED"
+                    if (isTerminal) {
+                        return@withTransaction shopDao.getStockTakeItemsForSessionSync(sessionId)
+                    }
+
                     val items = shopDao.getStockTakeItemsForSessionSync(sessionId).toMutableList()
                     val existingProductIds = items.map { it.productId }.toSet()
 
@@ -965,18 +971,39 @@ class ShopRepository(
                         )
                     }
 
+                    // Sync items with current product metadata (e.g. barcode updates outside stock take to resolve collision)
+                    val syncedItems = items.map { item ->
+                        val currentProd = shopDao.getProductById(item.productId)
+                        if (currentProd != null) {
+                            val canonicalBarcode = BarcodeResolver.getCanonicalBarcode(currentProd)
+                            val currentName = currentProd.name
+                            if (canonicalBarcode != item.productBarcode || currentName != item.productName) {
+                                val updated = item.copy(productBarcode = canonicalBarcode, productName = currentName)
+                                shopDao.updateStockTakeItem(updated)
+                                updated
+                            } else {
+                                item
+                            }
+                        } else {
+                            item
+                        }
+                    }
+
                     // Check for canonical barcode collisions among session items
-                    val barcodeCollisions = BarcodeResolver.findCanonicalBarcodeCollisionsInItems(items)
+                    val barcodeCollisions = BarcodeResolver.findCanonicalBarcodeCollisionsInItems(syncedItems)
 
                     val updatedList = mutableListOf<StockTakeItem>()
 
-                    for (item in items) {
+                    for (item in syncedItems) {
                         val currentProd = shopDao.getProductById(item.productId)
+                        val isMissing = (currentProd == null)
                         val currentSysStock = currentProd?.stock ?: 0
                         val isCollided = barcodeCollisions.containsKey(item.productBarcode.trim().lowercase())
-                        val changedDuring = (currentSysStock != item.expectedStockAtStart) || item.changedDuringSession || isCollided
+                        val stockChanged = (currentSysStock != item.expectedStockAtStart)
+                        val changedDuring = isMissing || stockChanged
 
                         val status = when {
+                            isMissing -> "NEEDS_REVIEW"
                             isCollided -> "NEEDS_REVIEW"
                             item.status == "NEW_PRODUCT_DURING_SESSION" -> "NEW_PRODUCT_DURING_SESSION"
                             !item.isCounted -> "UNCOUNTED"
@@ -995,12 +1022,20 @@ class ShopRepository(
                         updatedList.add(updatedItem)
                     }
 
+                    // Any blocker flags prevent completing review and keep status in REVIEW_REQUIRED:
+                    // Blockers: UNCOUNTED, NEEDS_REVIEW, NEW_PRODUCT_DURING_SESSION, !isCounted, canonical barcode collision, missing product, concurrent stock mutation
                     val hasReviewFlags = updatedList.any {
-                        it.status in listOf("UNCOUNTED", "NEEDS_REVIEW", "NEW_PRODUCT_DURING_SESSION")
+                        it.status in listOf("UNCOUNTED", "NEEDS_REVIEW", "NEW_PRODUCT_DURING_SESSION") ||
+                                !it.isCounted ||
+                                it.changedDuringSession ||
+                                (it.systemStockAtFinalize != it.expectedStockAtStart)
                     } || barcodeCollisions.isNotEmpty()
 
-                    if (hasReviewFlags && session.status == "IN_PROGRESS") {
-                        shopDao.updateStockTakeSession(session.copy(status = "REVIEW_REQUIRED"))
+                    val currentSession = shopDao.getStockTakeSessionById(sessionId) ?: session
+                    if (hasReviewFlags && currentSession.status == "IN_PROGRESS") {
+                        shopDao.updateStockTakeSession(currentSession.copy(status = "REVIEW_REQUIRED"))
+                    } else if (!hasReviewFlags && currentSession.status == "REVIEW_REQUIRED") {
+                        shopDao.updateStockTakeSession(currentSession.copy(status = "IN_PROGRESS"))
                     }
 
                     if (barcodeCollisions.isNotEmpty()) {
@@ -1037,9 +1072,10 @@ class ShopRepository(
                     val item = shopDao.getStockTakeItemByProduct(sessionId, productId)
                         ?: throw IllegalArgumentException("کالا در این انبارگردانی یافت نشد")
 
-                    // Invariant: NEW_PRODUCT_DURING_SESSION with !item.isCounted and verifiedCount == 0 cannot be resolved blindly without counting
-                    if (item.status == "NEW_PRODUCT_DURING_SESSION" && !item.isCounted && verifiedCount == 0) {
-                        throw IllegalStateException("کالای جدید حین انبارگردانی هنوز شمارش نشده است (isCounted = false). جهت تأیید موجودی صفر، ابتدا شمارش صفر را به صورت صریح برای این قلم ثبت نمایید.")
+                    // ISSUE 1: Invariant check - item MUST be counted (via barcode scan or manual count) before it can be resolved!
+                    // isCounted == false means physical count has NOT occurred. verifiedCount cannot convert isCounted to true without count.
+                    if (!item.isCounted) {
+                        throw IllegalStateException("این قلم هنوز شمارش فیزیکی نشده است (isCounted = false). تأیید مبنا بدون ثبت اسکن یا شمارش دستی امکان‌پذیر نیست.")
                     }
 
                     val currentProd = shopDao.getProductById(productId)
@@ -1065,13 +1101,16 @@ class ShopRepository(
                     val allItems = shopDao.getStockTakeItemsForSessionSync(sessionId)
                     val newTotal = allItems.sumOf { if (it.productId == productId) safeCount else it.countedStock }
 
-                    // Check if any other items still require review
-                    val remainingUnresolved = allItems.filter {
+                    // Check if any other items or collisions still require review
+                    val remainingItems = allItems.map { if (it.productId == productId) resolvedItem else it }
+                    val remainingCollisions = BarcodeResolver.findCanonicalBarcodeCollisionsInItems(remainingItems)
+                    val remainingUnresolved = remainingItems.filter {
                         if (it.productId == productId) false
-                        else (it.status == "NEEDS_REVIEW" || it.status == "NEW_PRODUCT_DURING_SESSION" || !it.isCounted)
+                        else (it.status in listOf("NEEDS_REVIEW", "NEW_PRODUCT_DURING_SESSION", "UNCOUNTED") || !it.isCounted || it.changedDuringSession)
                     }
 
-                    val newSessionStatus = if (remainingUnresolved.isEmpty()) "IN_PROGRESS" else "REVIEW_REQUIRED"
+                    val hasBlocker = remainingUnresolved.isNotEmpty() || remainingCollisions.isNotEmpty()
+                    val newSessionStatus = if (hasBlocker) "REVIEW_REQUIRED" else "IN_PROGRESS"
                     shopDao.updateStockTakeSession(
                         session.copy(
                             totalCountedPieces = newTotal,
@@ -1116,7 +1155,22 @@ class ShopRepository(
                         throw IllegalStateException("نشست انبارگردانی در وضعیت REVIEW_REQUIRED است و تا تعیین‌تکلیف کامل اقلام، امکان نهایی‌سازی وجود ندارد.")
                     }
 
-                    val items = shopDao.getStockTakeItemsForSessionSync(sessionId)
+                    val items = shopDao.getStockTakeItemsForSessionSync(sessionId).map { item ->
+                        val currentProd = shopDao.getProductById(item.productId)
+                        if (currentProd != null) {
+                            val canonicalBarcode = BarcodeResolver.getCanonicalBarcode(currentProd)
+                            val currentName = currentProd.name
+                            if (canonicalBarcode != item.productBarcode || currentName != item.productName) {
+                                val updated = item.copy(productBarcode = canonicalBarcode, productName = currentName)
+                                shopDao.updateStockTakeItem(updated)
+                                updated
+                            } else {
+                                item
+                            }
+                        } else {
+                            item
+                        }
+                    }
 
                     // 1. Guard against uncounted items: Cannot finalize while any item is uncounted
                     val uncounted = items.filter { !it.isCounted }

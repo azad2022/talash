@@ -814,7 +814,7 @@ fun StockTakeScreen(
                                         Text("دفتری: ${itm.expectedStockAtStart} | شمارش: ${if (itm.isCounted) itm.countedStock else "---"}", color = TextGray, fontSize = 10.sp)
                                     }
                                     if ((itm.status == "NEW_PRODUCT_DURING_SESSION" || itm.status == "NEEDS_REVIEW")) {
-                                        if (itm.status == "NEW_PRODUCT_DURING_SESSION" && !itm.isCounted) {
+                                        if (!itm.isCounted) {
                                             Text("ابتدا شمارش شود", color = Color(0xFFFF9800), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                         } else {
                                             Button(
