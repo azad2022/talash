@@ -251,7 +251,8 @@ data class SaleItem(
     val unitPrice: BigDecimal,
     val total: BigDecimal,
     val customWeight: BigDecimal? = null,
-    val customName: String? = null
+    val customName: String? = null,
+    val customKarat: Int? = null
 ) {
     constructor(
         id: Int = 0,
