@@ -35,8 +35,7 @@ object UsbPermissionBroker {
                 ContextCompat.RECEIVER_NOT_EXPORTED
             )
 
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
             val permissionIntent = PendingIntent.getBroadcast(
                 context,
