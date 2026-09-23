@@ -93,6 +93,9 @@ interface ShopDao {
     @Query("SELECT * FROM installments ORDER BY dueDate ASC")
     fun getAllInstallments(): Flow<List<Installment>>
 
+    @Query("SELECT * FROM installments WHERE id = :installmentId LIMIT 1")
+    suspend fun getInstallmentById(installmentId: Int): Installment?
+
     @Query("UPDATE installments SET paid = :paid, paymentDate = :paymentDate WHERE id = :installmentId")
     suspend fun updateInstallmentPayment(installmentId: Int, paid: Boolean, paymentDate: Long?)
 

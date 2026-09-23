@@ -1176,6 +1176,13 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 
+    fun resolveStockTakeItemReview(sessionId: Long, productId: Int, verifiedCount: Int, onComplete: (Result<StockTakeItem>) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = repository.resolveStockTakeItemReview(sessionId, productId, verifiedCount)
+            onComplete(res)
+        }
+    }
+
     fun applyStockTakeAdjustments(sessionId: Long, onComplete: (Result<StockTakeApplyResult>) -> Unit = {}) {
         viewModelScope.launch {
             val res = repository.applyStockTakeAdjustments(sessionId)

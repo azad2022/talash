@@ -451,6 +451,7 @@ data class StockTakeItem(
     val productBarcode: String,
     val expectedStockAtStart: Int,
     val countedStock: Int = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0")
     val isCounted: Boolean = false,
     val systemStockAtFinalize: Int? = null,
     val difference: Int = 0, // countedStock - expectedStockAtStart

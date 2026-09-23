@@ -6,6 +6,20 @@ import com.example.data.model.StockTakeItem
 object BarcodeResolver {
 
     /**
+     * Returns the canonical barcode string for a product:
+     * - Returns customBarcode (trimmed) if non-blank.
+     * - Otherwise returns standardized system format: "G-" padded with 6 digits (e.g. G-000042).
+     */
+    fun getCanonicalBarcode(productId: Int, customBarcode: String?): String {
+        val trimmed = customBarcode?.trim().orEmpty()
+        return if (trimmed.isNotBlank()) trimmed else "G-${productId.toString().padStart(6, '0')}"
+    }
+
+    fun getCanonicalBarcode(product: Product): String {
+        return getCanonicalBarcode(product.id, product.customBarcode)
+    }
+
+    /**
      * Resolves an input barcode string against a list of products.
      * Priority 1: Exact match with customBarcode (non-blank, case-insensitive).
      * Priority 2: System generated internal format G-xxxxxx -> resolved to productId.

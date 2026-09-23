@@ -91,6 +91,177 @@ class DatabaseMigrationTest {
         context.deleteDatabase(dbName)
     }
 
+    @Test
+    fun testMigrationFromV10ToV11PreservesStockTakeAndClosingData() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dbName = "test_migration_v10_v11.db"
+
+        context.deleteDatabase(dbName)
+
+        val helperConfig = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(dbName)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(10) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    createV10Schema(db)
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) {}
+            })
+            .build()
+
+        val sqliteHelper = FrameworkSQLiteOpenHelperFactory().create(helperConfig)
+        val v10Db = sqliteHelper.writableDatabase
+
+        insertV10Data(v10Db)
+        v10Db.close()
+
+        val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(AppDatabase.MIGRATION_10_11)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val shopDao = roomDb.shopDao
+
+            // Check stock take items migration
+            val items = shopDao.getStockTakeItemsForSessionSync(1)
+            assertEquals(2, items.size)
+
+            val item1 = items.first { it.id == 1L }
+            assertEquals(3, item1.countedStock)
+            assertEquals(true, item1.isCounted) // backfilled to true because countedStock > 0
+
+            val item2 = items.first { it.id == 2L }
+            assertEquals(0, item2.countedStock)
+            assertEquals(false, item2.isCounted) // default 0
+
+            // Check daily closing migration
+            val closing = shopDao.getLatestDailyClosingForDateSync("2026-09-21")
+            assertNotNull(closing)
+            assertEquals("CLOSED", closing!!.status)
+            assertEquals(null, closing.reopenReason)
+            assertEquals(null, closing.reopenedAt)
+        } finally {
+            roomDb.close()
+            context.deleteDatabase(dbName)
+        }
+    }
+
+    private fun createV10Schema(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `users` (`id` INTEGER NOT NULL PRIMARY KEY, `pinHash` TEXT NOT NULL, `fingerprintEnabled` INTEGER NOT NULL, `dailyGoldPrice` TEXT NOT NULL, `taxPercent` TEXT NOT NULL, `minStockAlert` INTEGER NOT NULL, `selectedPrinterName` TEXT, `selectedPrinterAddress` TEXT)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `customers` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `name` TEXT NOT NULL, `phone` TEXT NOT NULL, `address` TEXT NOT NULL, `nationalId` TEXT NOT NULL, `avatarPath` TEXT, `about` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `products` (
+                `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                `name` TEXT NOT NULL,
+                `category` TEXT NOT NULL,
+                `weightGram` TEXT NOT NULL,
+                `karat` INTEGER NOT NULL,
+                `wagePrice` TEXT NOT NULL,
+                `wageType` TEXT NOT NULL,
+                `stock` INTEGER NOT NULL,
+                `minStock` INTEGER NOT NULL,
+                `imagePath` TEXT,
+                `imagePath2` TEXT,
+                `imagePath3` TEXT,
+                `imagePath4` TEXT,
+                `imagePath5` TEXT,
+                `purchasePrice` TEXT NOT NULL,
+                `customBarcode` TEXT NOT NULL,
+                `isDeleted` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("CREATE TABLE IF NOT EXISTS `sale_invoices` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `customerId` INTEGER NOT NULL, `date` INTEGER NOT NULL, `totalAmount` TEXT NOT NULL, `discount` TEXT NOT NULL, `tax` TEXT NOT NULL, `paidAmount` TEXT NOT NULL, `paymentType` TEXT NOT NULL, `installmentsCount` INTEGER NOT NULL, `prepayment` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `sale_items` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `invoiceId` INTEGER NOT NULL, `productId` INTEGER NOT NULL, `quantity` INTEGER NOT NULL, `unitPrice` TEXT NOT NULL, `total` TEXT NOT NULL, `customWeight` TEXT, `customName` TEXT)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `installments` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `invoiceId` INTEGER NOT NULL, `dueDate` INTEGER NOT NULL, `amount` TEXT NOT NULL, `paid` INTEGER NOT NULL, `paymentDate` INTEGER)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `repairs` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `customerId` INTEGER NOT NULL, `description` TEXT NOT NULL, `imagePath` TEXT, `estimatedCost` TEXT NOT NULL, `upfrontPayment` TEXT NOT NULL, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `deliveredAt` INTEGER)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gold_price_history` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `date` INTEGER NOT NULL, `pricePerGram` TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `audit_logs` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `userId` INTEGER NOT NULL DEFAULT 1, `action` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `details` TEXT NOT NULL)")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `daily_closings` (
+                `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                `businessDateKey` TEXT NOT NULL,
+                `closedAt` INTEGER NOT NULL,
+                `displayedPersianDate` TEXT NOT NULL,
+                `displayedGregorianDate` TEXT NOT NULL,
+                `invoiceCount` INTEGER NOT NULL,
+                `salesTotal` TEXT NOT NULL,
+                `paidTotal` TEXT NOT NULL,
+                `installmentCreatedTotal` TEXT NOT NULL,
+                `installmentCreatedCount` INTEGER NOT NULL,
+                `installmentCollectedTotal` TEXT NOT NULL,
+                `overdueInstallmentCount` INTEGER NOT NULL,
+                `inventoryPieceCount` INTEGER NOT NULL,
+                `inventoryWeight` TEXT NOT NULL,
+                `inventoryValue` TEXT NOT NULL,
+                `lowStockCount` INTEGER NOT NULL,
+                `openRepairsCount` INTEGER NOT NULL,
+                `readyRepairsCount` INTEGER NOT NULL,
+                `goldRateAtClose` TEXT NOT NULL,
+                `optionalPhysicalCash` TEXT,
+                `optionalPhysicalGoldWeight` TEXT,
+                `optionalNotes` TEXT,
+                `status` TEXT NOT NULL,
+                `revision` INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `stock_take_sessions` (
+                `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                `startedAt` INTEGER NOT NULL,
+                `completedAt` INTEGER,
+                `status` TEXT NOT NULL,
+                `notes` TEXT,
+                `totalExpectedPieces` INTEGER NOT NULL,
+                `totalCountedPieces` INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `stock_take_items` (
+                `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                `sessionId` INTEGER NOT NULL,
+                `productId` INTEGER NOT NULL,
+                `productName` TEXT NOT NULL,
+                `productCategory` TEXT NOT NULL,
+                `productBarcode` TEXT NOT NULL,
+                `expectedStockAtStart` INTEGER NOT NULL,
+                `countedStock` INTEGER NOT NULL,
+                `systemStockAtFinalize` INTEGER,
+                `difference` INTEGER NOT NULL,
+                `changedDuringSession` INTEGER NOT NULL,
+                `status` TEXT NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_take_items_sessionId` ON `stock_take_items` (`sessionId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_take_items_productId` ON `stock_take_items` (`productId`)")
+    }
+
+    private fun insertV10Data(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("""
+            INSERT INTO `daily_closings` (
+                `id`, `businessDateKey`, `closedAt`, `displayedPersianDate`, `displayedGregorianDate`,
+                `invoiceCount`, `salesTotal`, `paidTotal`, `installmentCreatedTotal`, `installmentCreatedCount`,
+                `installmentCollectedTotal`, `overdueInstallmentCount`, `inventoryPieceCount`, `inventoryWeight`,
+                `inventoryValue`, `lowStockCount`, `openRepairsCount`, `readyRepairsCount`, `goldRateAtClose`,
+                `status`, `revision`
+            ) VALUES (
+                1, '2026-09-21', 1700000000000, '1405/06/31', '2026/09/21',
+                2, '10000000', '10000000', '0', 0,
+                '0', 0, 3, '15.5',
+                '50000000', 0, 0, 0, '3500000',
+                'CLOSED', 1
+            )
+        """.trimIndent())
+        db.execSQL("INSERT INTO `stock_take_sessions` (`id`, `startedAt`, `status`, `totalExpectedPieces`, `totalCountedPieces`) VALUES (1, 1700000000000, 'IN_PROGRESS', 5, 3)")
+        db.execSQL("INSERT INTO `stock_take_items` (`id`, `sessionId`, `productId`, `productName`, `productCategory`, `productBarcode`, `expectedStockAtStart`, `countedStock`, `difference`, `changedDuringSession`, `status`) VALUES (1, 1, 10, 'النگو', 'طلا', 'BAR1', 3, 3, 0, 0, 'PENDING')")
+        db.execSQL("INSERT INTO `stock_take_items` (`id`, `sessionId`, `productId`, `productName`, `productCategory`, `productBarcode`, `expectedStockAtStart`, `countedStock`, `difference`, `changedDuringSession`, `status`) VALUES (2, 1, 11, 'انگشتر', 'طلا', 'BAR2', 2, 0, -2, 0, 'PENDING')")
+    }
+
     private fun createV8Schema(db: androidx.sqlite.db.SupportSQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS `users` (`id` INTEGER NOT NULL PRIMARY KEY, `pinHash` TEXT NOT NULL, `fingerprintEnabled` INTEGER NOT NULL, `dailyGoldPrice` REAL NOT NULL, `taxPercent` REAL NOT NULL, `minStockAlert` INTEGER NOT NULL, `selectedPrinterName` TEXT, `selectedPrinterAddress` TEXT)")
         db.execSQL("CREATE TABLE IF NOT EXISTS `customers` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `name` TEXT NOT NULL, `phone` TEXT NOT NULL, `address` TEXT NOT NULL, `nationalId` TEXT NOT NULL, `avatarPath` TEXT, `about` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)")

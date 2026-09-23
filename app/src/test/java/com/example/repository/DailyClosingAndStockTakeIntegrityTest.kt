@@ -200,4 +200,240 @@ class DailyClosingAndStockTakeIntegrityTest {
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("بارکدهای تکراری") == true)
     }
+
+    @Test
+    fun `closed business day blocks createInvoice inside transaction`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "گوشواره", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", stock = 5)).toInt()
+        val invoice = SaleInvoice(customerId = customerId, totalAmount = 1000.0, discount = 0.0, tax = 0.0, paidAmount = 1000.0, paymentType = "CASH")
+        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 1000.0, total = 1000.0))
+
+        // Close today
+        val preview = repository.getTodaySummaryPreview()
+        assertTrue(repository.closeDay(preview, BigDecimal.ZERO, BigDecimal.ZERO, "بستن روز").isSuccess)
+
+        try {
+            repository.createInvoice(invoice, items, emptyList())
+            fail("Expected IllegalStateException due to closed business day lock")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+        // Verify product stock did not change
+        val prod = shopDao.getProductById(prodId)
+        assertEquals(5, prod?.stock)
+    }
+
+    @Test
+    fun `closed business day blocks deleteInvoice inside transaction`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "انگشتر مردانه", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", stock = 5)).toInt()
+        val invoice = SaleInvoice(customerId = customerId, totalAmount = 2000.0, discount = 0.0, tax = 0.0, paidAmount = 2000.0, paymentType = "CASH")
+        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 2000.0, total = 2000.0))
+
+        val invId = repository.createInvoice(invoice, items, emptyList()).toInt()
+        val savedInvoice = shopDao.getAllInvoicesSync().first { it.id == invId }
+
+        // Close day
+        val preview = repository.getTodaySummaryPreview()
+        assertTrue(repository.closeDay(preview, BigDecimal.ZERO, BigDecimal.ZERO, "بستن").isSuccess)
+
+        // Attempt delete on closed day
+        try {
+            repository.deleteInvoice(savedInvoice)
+            fail("Expected IllegalStateException due to closed business day lock")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+
+        // Verify invoice was NOT cancelled and stock remains 4
+        val afterProd = shopDao.getProductById(prodId)
+        assertEquals(4, afterProd?.stock)
+        val afterInv = shopDao.getAllInvoicesSync().first { it.id == invId }
+        assertEquals("CASH", afterInv.paymentType)
+    }
+
+    @Test
+    fun `closed business day blocks payInstallment inside transaction`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "سکه", category = "سکه", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", stock = 2)).toInt()
+        val invoice = SaleInvoice(customerId = customerId, totalAmount = 10000.0, discount = 0.0, tax = 0.0, paidAmount = 5000.0, paymentType = "INSTALLMENT", installmentsCount = 1)
+        val items = listOf(SaleItem(invoiceId = 0, productId = prodId, quantity = 1, unitPrice = 10000.0, total = 10000.0))
+        val installments = listOf(com.example.data.model.Installment(invoiceId = 0, dueDate = System.currentTimeMillis() + 86400000, amount = 5000.0, paid = false))
+
+        val invId = repository.createInvoice(invoice, items, installments).toInt()
+        val inst = shopDao.getAllInstallmentsSync().first { it.invoiceId == invId }
+
+        // Close day
+        val preview = repository.getTodaySummaryPreview()
+        assertTrue(repository.closeDay(preview, BigDecimal.ZERO, BigDecimal.ZERO, "بستن").isSuccess)
+
+        // Attempt pay installment
+        try {
+            repository.payInstallment(inst.id, true)
+            fail("Expected IllegalStateException due to closed business day lock")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+
+        val afterInst = shopDao.getAllInstallmentsSync().first { it.id == inst.id }
+        assertFalse(afterInst.paid)
+    }
+
+    @Test
+    fun `closed business day blocks product insertions and stock adjustments`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "زنجیر", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", stock = 3)).toInt()
+
+        // Close day
+        val preview = repository.getTodaySummaryPreview()
+        assertTrue(repository.closeDay(preview, BigDecimal.ZERO, BigDecimal.ZERO, "بستن").isSuccess)
+
+        // 1. Insert product
+        try {
+            repository.insertProduct(Product(name = "دستبند چرم", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", stock = 1))
+            fail("Expected IllegalStateException")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+
+        // 2. Update stock directly
+        try {
+            repository.updateProductStock(prodId, 10)
+            fail("Expected IllegalStateException")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+
+        val savedProd = shopDao.getProductById(prodId)
+        assertEquals(3, savedProd?.stock)
+
+        // 3. Delete product
+        try {
+            repository.deleteProduct(savedProd!!)
+            fail("Expected IllegalStateException")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("بسته شده است") == true)
+        }
+    }
+
+    @Test
+    fun `closed business day blocks start and apply of stock take`() = runTest {
+        shopDao.insertProduct(Product(name = "النگو پهن", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", stock = 2))
+
+        // Close day
+        val preview = repository.getTodaySummaryPreview()
+        assertTrue(repository.closeDay(preview, BigDecimal.ZERO, BigDecimal.ZERO, "بستن").isSuccess)
+
+        // Starting stock take on closed day must fail
+        val startRes = repository.startStockTakeSession()
+        assertTrue(startRes.isFailure)
+        assertTrue(startRes.exceptionOrNull()?.message?.contains("بسته شده است") == true)
+    }
+
+    @Test
+    fun `canonical barcode assignment format G-xxxxxx when customBarcode is blank`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "آویز بدون بارکد", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "  ", stock = 1)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+        val items = shopDao.getStockTakeItemsForSessionSync(session.id)
+        val item = items.first { it.productId == prodId }
+
+        val expectedBarcode = "G-${prodId.toString().padStart(6, '0')}"
+        assertEquals(expectedBarcode, item.productBarcode)
+
+        // Resolving by canonical barcode succeeds
+        val scanRes = repository.scanBarcodeForStockTake(session.id, expectedBarcode)
+        assertTrue(scanRes.isSuccess)
+        val scanSuccess = scanRes.getOrThrow() as com.example.data.repository.StockTakeScanResult.Success
+        assertEquals(1, scanSuccess.item.countedStock)
+        assertTrue(scanSuccess.item.isCounted)
+    }
+
+    @Test
+    fun `resolveStockTakeItemReview successfully reconciles changed item and allows finalization`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "گردنبند مروارید", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "PEARL-1", stock = 4)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+        repository.scanBarcodeForStockTake(session.id, "PEARL-1")
+        repository.scanBarcodeForStockTake(session.id, "PEARL-1")
+        repository.scanBarcodeForStockTake(session.id, "PEARL-1")
+        repository.scanBarcodeForStockTake(session.id, "PEARL-1") // counted 4
+
+        // Concurrent update: product stock changes to 6
+        shopDao.updateProductStock(prodId, 6)
+
+        // Prepare review: status becomes NEEDS_REVIEW, session becomes REVIEW_REQUIRED
+        val reviewRes = repository.prepareReconciliationReview(session.id).getOrThrow()
+        val itemBefore = reviewRes.first { it.productId == prodId }
+        assertEquals("NEEDS_REVIEW", itemBefore.status)
+
+        // Finalize must fail
+        val finalizeFail = repository.applyStockTakeAdjustments(session.id)
+        assertTrue(finalizeFail.isFailure)
+
+        // Resolve item by accepting new baseline and verified count = 6
+        val resolveRes = repository.resolveStockTakeItemReview(session.id, prodId, 6)
+        assertTrue(resolveRes.isSuccess)
+        val resolvedItem = resolveRes.getOrThrow()
+        assertEquals("MATCHED", resolvedItem.status)
+        assertFalse(resolvedItem.changedDuringSession)
+        assertEquals(6, resolvedItem.countedStock)
+        assertEquals(6, resolvedItem.expectedStockAtStart)
+
+        val updatedSession = shopDao.getStockTakeSessionById(session.id)
+        assertEquals("IN_PROGRESS", updatedSession?.status)
+
+        // Now finalize succeeds
+        val finalizeSuccess = repository.applyStockTakeAdjustments(session.id)
+        assertTrue(finalizeSuccess.isSuccess)
+        val applied = finalizeSuccess.getOrThrow()
+        assertEquals("COMPLETED", applied.completedSession.status)
+        assertEquals(6, shopDao.getProductById(prodId)?.stock)
+    }
+
+    @Test
+    fun `canceling stock take session leaves inventory untouched`() = runTest {
+        val prodId = shopDao.insertProduct(Product(name = "نیم ست", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "HALF-1", stock = 7)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+        repository.scanBarcodeForStockTake(session.id, "HALF-1") // count 1
+
+        val cancelRes = repository.cancelStockTakeSession(session.id)
+        assertTrue(cancelRes.isSuccess)
+
+        val updatedSession = shopDao.getStockTakeSessionById(session.id)
+        assertEquals("CANCELLED", updatedSession?.status)
+
+        // Stock in database remains intact
+        assertEquals(7, shopDao.getProductById(prodId)?.stock)
+    }
+
+    @Test
+    fun `new product added during session appears in review and flags REVIEW_REQUIRED`() = runTest {
+        val prod1 = shopDao.insertProduct(Product(name = "کالای اولیه", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "C1", stock = 2)).toInt()
+
+        val session = repository.startStockTakeSession().getOrThrow()
+        repository.scanBarcodeForStockTake(session.id, "C1")
+        repository.scanBarcodeForStockTake(session.id, "C1")
+
+        // Add new product during session
+        val prod2 = repository.insertProduct(Product(name = "کالای جدید حین انبارگردانی", category = "طلا", weightGram = BigDecimal.ONE, wagePrice = BigDecimal.ZERO, wageType = "FIXED", customBarcode = "C2", stock = 3)).toInt()
+
+        // Verify session was flagged
+        val activeSession = shopDao.getStockTakeSessionById(session.id)
+        assertEquals("REVIEW_REQUIRED", activeSession?.status)
+
+        // Prepare review
+        val reviewList = repository.prepareReconciliationReview(session.id).getOrThrow()
+        val newProdItem = reviewList.firstOrNull { it.productId == prod2 }
+        assertNotNull(newProdItem)
+        assertEquals("NEW_PRODUCT_DURING_SESSION", newProdItem!!.status)
+
+        // Cannot finalize until resolved
+        val applyFail = repository.applyStockTakeAdjustments(session.id)
+        assertTrue(applyFail.isFailure)
+
+        // Resolve new item
+        repository.resolveStockTakeItemReview(session.id, prod2, 3)
+
+        // Finalize succeeds
+        val applySuccess = repository.applyStockTakeAdjustments(session.id)
+        assertTrue(applySuccess.isSuccess)
+    }
 }

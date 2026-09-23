@@ -390,13 +390,13 @@ fun DailyClosingScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Text(
-                                            text = "مغایرت‌گیری فیزیکی گاوصندوق و ویترین (اختیاری)",
+                                            text = "تطبیق اختیاری وجه نقد دریافتی و وزن طلای انبار",
                                             color = MetallicGold,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                         )
                                         Text(
-                                            text = "جهت تطبیق وجوه نقد گاوصندوق و ترازوی فیزیکی با ارقام دفتری سیستم، می‌توانید مقادیر واقعی را وارد کنید:",
+                                            text = "جهت ثبت شمارش صندوق و مقایسه وزن فیزیکی اندازه‌گیری‌شده با موجودی دفتری ثبت‌شده در سیستم:",
                                             color = TextGray,
                                             fontSize = 11.sp,
                                             lineHeight = 16.sp
@@ -405,7 +405,7 @@ fun DailyClosingScreen(
                                         OutlinedTextField(
                                             value = physicalCashInput,
                                             onValueChange = { physicalCashInput = it },
-                                            label = { Text("موجودی فیزیکی نقد در گاوصندوق (تومان)") },
+                                            label = { Text("شمارش فیزیکی وجه نقد صندوق (تومان)") },
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedTextColor = TextWhite,
@@ -424,7 +424,7 @@ fun DailyClosingScreen(
                                             val diff = physCash.subtract(expectedCash)
                                             val diffColor = if (diff >= BigDecimal.ZERO) StatusGreen else Color(0xFFFF5252)
                                             Text(
-                                                text = "مغایرت نقد (فیزیکی - سیستم): ${viewModel.formatCurrency(diff)} تومان",
+                                                text = "مغایرت نقد (شمارش فیزیکی - نقد ثبت‌شده در معاملات امروز): ${viewModel.formatCurrency(diff)} تومان",
                                                 color = diffColor,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
@@ -434,7 +434,7 @@ fun DailyClosingScreen(
                                         OutlinedTextField(
                                             value = physicalGoldWeightInput,
                                             onValueChange = { physicalGoldWeightInput = it },
-                                            label = { Text("وزن فیزیکی طلای موجود طبق ترازو (گرم)") },
+                                            label = { Text("وزن فیزیکی اندازه‌گیری‌شده طلای موجود در انبار (گرم)") },
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedTextColor = TextWhite,
@@ -452,7 +452,7 @@ fun DailyClosingScreen(
                                             val diffGold = physGold.subtract(preview.inventoryWeight)
                                             val diffColor = if (diffGold.abs() < BigDecimal("0.05")) StatusGreen else Color(0xFFFF5252)
                                             Text(
-                                                text = "مغایرت وزن طلا: ${viewModel.formatWeight(diffGold)} گرم",
+                                                text = "مغایرت وزن (وزن فیزیکی - موجودی طلای ثبت‌شده در سیستم): ${viewModel.formatWeight(diffGold)} گرم",
                                                 color = diffColor,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold

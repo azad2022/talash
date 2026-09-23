@@ -152,7 +152,7 @@ fun StockTakeScreen(
                                 )
 
                                 Text(
-                                    text = "با شروع انبارگردانی، تصویری از موجودی فعلی انبار ثبت می‌شود و می‌توانید اقلام ویترین و گاوصندوق را با بارکدخوان اسکن نمایید تا مغایرت‌ها مشخص شوند.",
+                                    text = "با شروع انبارگردانی، تصویری از موجودی فعلی انبار ثبت می‌شود و می‌توانید اقلام موجود را با بارکدخوان اسکن نمایید تا مغایرت‌ها با سیستم مشخص شوند.",
                                     color = TextGray,
                                     fontSize = 12.sp,
                                     lineHeight = 18.sp
@@ -813,7 +813,25 @@ fun StockTakeScreen(
                                         Text(itm.productName, color = TextWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         Text("دفتری: ${itm.expectedStockAtStart} | شمارش: ${if (itm.isCounted) itm.countedStock else "---"}", color = TextGray, fontSize = 10.sp)
                                     }
-                                    Text(statusText, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    if (itm.status == "NEW_PRODUCT_DURING_SESSION" || itm.status == "NEEDS_REVIEW") {
+                                        Button(
+                                            onClick = {
+                                                viewModel.resolveStockTakeItemReview(session.id, itm.productId, itm.countedStock) {
+                                                    viewModel.prepareStockTakeReview(session.id) { res ->
+                                                        res.onSuccess { reviewItemsList = it }
+                                                    }
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MetallicGold, contentColor = DarkObsidian),
+                                            shape = RoundedCornerShape(6.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            Text("تأیید مبنا", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else {
+                                        Text(statusText, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
@@ -847,8 +865,21 @@ fun StockTakeScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showReviewReconciliationDialog = false }) {
-                    Text("بازگشت", color = TextGray)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (changedItems.isNotEmpty()) {
+                        TextButton(
+                            onClick = {
+                                showReviewReconciliationDialog = false
+                                showCancelConfirmDialog = true
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFF5252))
+                        ) {
+                            Text("لغو و شروع مجدد", fontSize = 11.sp)
+                        }
+                    }
+                    TextButton(onClick = { showReviewReconciliationDialog = false }) {
+                        Text("بازگشت", color = TextGray)
+                    }
                 }
             },
             containerColor = SmokyCard,
