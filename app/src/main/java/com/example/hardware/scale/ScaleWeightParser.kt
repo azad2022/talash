@@ -29,7 +29,8 @@ object ScaleWeightParser {
 
 class StableWeightDetector(
     private val toleranceGrams: BigDecimal = BigDecimal("0.005"),
-    private val requiredStableSamples: Int = 4
+    private val requiredStableSamples: Int = 4,
+    private val minimumStableDurationMs: Long = 300L
 ) {
     private val recent = ArrayDeque<BigDecimal>()
     private var stableSinceMs = 0L
@@ -55,6 +56,8 @@ class StableWeightDetector(
         val average = recent.fold(BigDecimal.ZERO, BigDecimal::add)
             .divide(BigDecimal.valueOf(recent.size.toLong()), 3, RoundingMode.HALF_UP)
 
-        return StableWeight(average, nowMs - stableSinceMs, recent.size)
+        val stableForMs = nowMs - stableSinceMs
+        if (stableForMs < minimumStableDurationMs) return null
+        return StableWeight(average, stableForMs, recent.size)
     }
 }
