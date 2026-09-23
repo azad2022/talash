@@ -253,6 +253,13 @@ class ShopRepository(
                 throw IllegalStateException("روز کاری جاری ($dateKey) بسته شده است و امکان تغییر در موجودی یا لیست کالاها وجود ندارد. ابتدا باید روز را بازگشایی کنید.")
             }
             val id = shopDao.insertProduct(product)
+            val activeProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
+            val barcodeCollisions = BarcodeResolver.findCanonicalBarcodeCollisions(activeProducts)
+            if (barcodeCollisions.isNotEmpty()) {
+                throw IllegalStateException(
+                    "بارکد کالا یکتا نیست: [${barcodeCollisions.keys.joinToString(", ")}]. لطفاً بارکد تکراری را اصلاح کنید."
+                )
+            }
             val action = if (product.id == 0) "افزودن کالا به انبار: " else "بروزرسانی مشخصات کالا: "
             logAction(if (product.id == 0) "ADD_PRODUCT" else "EDIT_PRODUCT", "$action ${product.name} (${product.weightGram} گرم)")
 
