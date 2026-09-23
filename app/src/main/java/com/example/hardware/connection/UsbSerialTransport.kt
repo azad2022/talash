@@ -53,12 +53,12 @@ class UsbSerialTransport(
                     .firstOrNull { it.device.deviceId == deviceId }
                     ?: return@withContext HardwareResult.Failure("درایور USB Serial سازگار پیدا نشد.")
 
+                val serialPort = driver.ports.firstOrNull()
+                    ?: return@withContext HardwareResult.Failure("پورت Serial در دستگاه USB یافت نشد.")
+
                 val openedConnection = usbManager.openDevice(driver.device)
                     ?: return@withContext HardwareResult.Failure("امکان بازکردن ارتباط USB وجود ندارد.")
                 connection = openedConnection
-
-                val serialPort = driver.ports.firstOrNull()
-                    ?: return@withContext HardwareResult.Failure("پورت Serial در دستگاه USB یافت نشد.")
 
                 serialPort.open(openedConnection)
                 serialPort.setParameters(settings.baudRate, settings.dataBits, settings.stopBits, settings.parity)
