@@ -80,6 +80,15 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
 
     val connectionState by viewModel.hardwareConnectionState.collectAsState()
     val stableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
+    val connectedDevice by viewModel.hardwareConnectedDevice.collectAsState()
+
+    LaunchedEffect(connectedDevice) {
+        connectedDevice?.let { device ->
+            if (device.type == HardwareDeviceType.RECEIPT_PRINTER || device.type == HardwareDeviceType.LABEL_PRINTER) {
+                device.address?.let { address -> viewModel.rememberPrinterDevice(device.name, address) }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
