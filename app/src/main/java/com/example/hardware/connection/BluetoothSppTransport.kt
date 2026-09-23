@@ -10,7 +10,7 @@ import com.example.hardware.core.HardwareConnectionState
 import com.example.hardware.core.HardwareDevice
 import com.example.hardware.core.HardwareResult
 import com.example.hardware.core.HardwareTransport
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +33,7 @@ class BluetoothSppTransport(private val context: Context) : HardwareTransport {
     override val state: StateFlow<HardwareConnectionState> = _state
     private val incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 32)
     private var socket: BluetoothSocket? = null
+    private var readerJob: Job? = null
 
     override suspend fun connect(device: HardwareDevice): HardwareResult<Unit> {
         val address = device.address?.trim().orEmpty()
@@ -64,6 +65,8 @@ class BluetoothSppTransport(private val context: Context) : HardwareTransport {
     }
 
     override suspend fun disconnect() {
+        readerJob?.cancel()
+        readerJob = null
         closeQuietly()
         _state.value = HardwareConnectionState.DISCONNECTED
     }
@@ -86,7 +89,8 @@ class BluetoothSppTransport(private val context: Context) : HardwareTransport {
     override fun incomingBytes(): Flow<ByteArray> = incoming.asSharedFlow()
 
     private fun startReader(activeSocket: BluetoothSocket) {
-        CoroutineScope(Dispatchers.IO).launch {
+        readerJob?.cancel()
+        readerJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             val buffer = ByteArray(2048)
             try {
                 while (currentCoroutineContext().isActive && activeSocket.isConnected) {
