@@ -47,6 +47,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     val hardwareConnectionState: StateFlow<HardwareConnectionState> = hardwareManager?.connectionState ?: defaultHardwareState
     val hardwareConnectedDevice: StateFlow<com.example.hardware.core.HardwareDevice?> = hardwareManager?.connectedDevice ?: MutableStateFlow(null)
     val hardwareLatestStableWeight: StateFlow<com.example.hardware.core.StableWeight?> = hardwareManager?.latestStableWeight ?: defaultStableWeight
+    val hardwareLastError: StateFlow<String?> = hardwareManager?.lastError ?: MutableStateFlow(null)
 
 
     // --- SECURITY & PIN AUTHFLOW ---
@@ -753,6 +754,17 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         hardwareManager?.connectBluetooth(name, address, type)
     }
 
+    fun usbSerialDevices(): List<com.example.hardware.core.HardwareDevice> =
+        hardwareManager?.usbSerialDevices().orEmpty()
+
+    fun connectUsbHardware(
+        deviceId: Int,
+        name: String,
+        type: HardwareDeviceType
+    ) {
+        hardwareManager?.connectUsb(deviceId, name, type)
+    }
+
     fun disconnectHardware() {
         hardwareManager?.let { manager ->
             viewModelScope.launch { manager.disconnect() }
@@ -767,7 +779,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
             return
         }
-        hardwareManager?.write(EscPosEncoder.encodeText(payload), onResult)
+        hardwareManager?.writeFor(HardwareDeviceType.RECEIPT_PRINTER, EscPosEncoder.encodeText(payload), onResult)
             ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
     }
 
@@ -781,7 +793,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     ) {
         val barcode = com.example.domain.util.BarcodeResolver.getCanonicalBarcode(product)
         val payload = GoldLabelFormatter.text(product, barcode)
-        hardwareManager?.write(EscPosEncoder.encodeText(payload), onResult)
+        hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, EscPosEncoder.encodeText(payload), onResult)
             ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
     }
 
