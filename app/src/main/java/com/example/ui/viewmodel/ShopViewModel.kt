@@ -508,6 +508,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     )
 
     fun clearInvoiceCart() {
+        if (isInvoiceSubmissionInProgress) return
         draftCustomer = null
         draftItems.clear()
         draftPaymentType = "CASH"
@@ -517,6 +518,8 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     }
 
     fun addItemToDraft(product: Product, quantity: Int = 1) {
+        if (isInvoiceSubmissionInProgress) return
+        if (quantity == 0) return
         viewModelScope.launch {
             val user = repository.getOrInitializeUser()
             val estimatedPrice = product.calculateAssetValue(
@@ -624,6 +627,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             return false
         }
         if (draftItems.isEmpty()) return false
+        val draftSnapshot = draftItems.toList()
         val customerId = draftCustomer?.id ?: 0
 
         val discountText = draftDiscountInput.trim()
@@ -662,7 +666,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             onError?.invoke("نوع تسویه فاکتور نامعتبر است.")
             return false
         }
-        if (draftItems.any { it.qty <= 0 }) {
+        if (draftSnapshot.any { it.qty <= 0 }) {
             onError?.invoke("تعداد هیچ قلمی از فاکتور نمی‌تواند صفر یا منفی باشد.")
             return false
         }
@@ -674,7 +678,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             onError?.invoke("مبلغ پیش‌پرداخت نمی‌تواند منفی باشد.")
             return false
         }
-        val requestedSubtotalBd = draftItems.fold(BigDecimal.ZERO) { acc, item ->
+        val requestedSubtotalBd = draftSnapshot.fold(BigDecimal.ZERO) { acc, item ->
             acc.add(BigDecimal.valueOf(item.exactSalePrice).setScale(0, RoundingMode.HALF_UP))
         }
         val requestedDiscountBd = BigDecimal.valueOf(discVal).setScale(0, RoundingMode.HALF_UP)
@@ -723,7 +727,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                 val user = repository.getOrInitializeUser()
 
                 // Convert drafts to SaleItem deterministically
-                val itemsToSave = draftItems.map { draft ->
+                val itemsToSave = draftSnapshot.map { draft ->
                     val draftTotalBd = java.math.BigDecimal.valueOf(draft.exactSalePrice).setScale(0, java.math.RoundingMode.HALF_UP)
                     val qtyBd = java.math.BigDecimal.valueOf(draft.qty.toLong())
                     val unitPriceBd = draftTotalBd.divide(qtyBd, 0, java.math.RoundingMode.HALF_UP)
