@@ -85,7 +85,7 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
 
     val connectionState by viewModel.hardwareConnectionState.collectAsState()
     val stableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
-    val connectedDevice by viewModel.hardwareConnectedDevice.collectAsState()
+    val connectedDevices by viewModel.hardwareConnectedDevices.collectAsState()
     val hardwareLastError by viewModel.hardwareLastError.collectAsState()
 
     Scaffold(
@@ -127,10 +127,20 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
                         hardwareLastError?.let { error ->
                             Text("خطا: " + error, color = Color(0xFFFF5252), fontSize = 11.sp)
                         }
-                        if (connectionState == HardwareConnectionState.CONNECTED) {
-                            OutlinedButton(onClick = viewModel::disconnectHardware) {
-                                Icon(Icons.Filled.Close, contentDescription = null)
-                                Text("قطع اتصال")
+                        if (connectedDevices.isNotEmpty()) {
+                            connectedDevices.forEach { entry ->
+                                val type = entry.key
+                                val device = entry.value
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(hardwareTypeLabel(type) + ": " + device.name, color = TextWhite, fontSize = 11.sp)
+                                    TextButton(onClick = { viewModel.disconnectHardware(type) }) {
+                                        Text("قطع", color = Color(0xFFFF5252), fontSize = 10.sp)
+                                    }
+                                }
                             }
                         }
                     }
@@ -287,6 +297,13 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
             confirmButton = { Button(onClick = { showDialog = false }) { Text("باشه") } }
         )
     }
+}
+
+private fun hardwareTypeLabel(type: HardwareDeviceType): String = when (type) {
+    HardwareDeviceType.SCALE -> "ترازو"
+    HardwareDeviceType.BARCODE_SCANNER -> "بارکدخوان"
+    HardwareDeviceType.RECEIPT_PRINTER -> "فیش‌پرینتر"
+    HardwareDeviceType.LABEL_PRINTER -> "لیبل‌پرینتر"
 }
 
 @Composable
