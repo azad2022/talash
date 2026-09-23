@@ -33,11 +33,14 @@ object HardwareBarcodeBus {
 
         val isTerminator =
             event.keyCode == KeyEvent.KEYCODE_ENTER ||
-            event.keyCode == KeyEvent.KEYCODE_TAB
-        val isDataKey = event.unicodeChar != 0
+                event.keyCode == KeyEvent.KEYCODE_TAB
+        val isPrintable = event.isPrintingKey || event.unicodeChar != 0
 
-        if (!isTerminator && !isDataKey) return false
-        if (event.action != KeyEvent.ACTION_UP) return true
+        if (!isTerminator && !isPrintable) return false
+
+        if (event.action != KeyEvent.ACTION_UP) {
+            return true
+        }
 
         val now = System.currentTimeMillis()
 
@@ -50,9 +53,14 @@ object HardwareBarcodeBus {
             return true
         }
 
-        if (lastCharAt > 0L && now - lastCharAt > MAX_INTER_KEY_DELAY_MS) buffer.clear()
-        buffer.appendCodePoint(event.unicodeChar)
+        val codePoint = event.unicodeChar
+        if (codePoint == 0) return true
+
+        if (lastCharAt > 0L && now - lastCharAt > MAX_INTER_KEY_DELAY_MS) {
+            buffer.clear()
+        }
+
+        buffer.appendCodePoint(codePoint)
         lastCharAt = now
         return true
     }
-}
