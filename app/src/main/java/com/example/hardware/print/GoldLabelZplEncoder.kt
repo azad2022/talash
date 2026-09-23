@@ -11,9 +11,18 @@ import android.text.TextPaint
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import java.nio.charset.StandardCharsets
+import kotlin.math.roundToInt
 
 object GoldLabelZplEncoder {
-    fun encode(product: com.example.data.model.Product, canonicalBarcode: String, widthPx: Int = 320, heightPx: Int = 200): ByteArray {
+    fun encode(
+        product: com.example.data.model.Product,
+        canonicalBarcode: String,
+        dpi: Int = 203,
+        widthMm: Int = 40,
+        heightMm: Int = 25
+    ): ByteArray {
+        val widthPx = (widthMm * dpi / 25.4).roundToInt().coerceAtLeast(1)
+        val heightPx = (heightMm * dpi / 25.4).roundToInt().coerceAtLeast(1)
         val bitmap = render(product, canonicalBarcode, widthPx, heightPx)
         return bitmapToZpl(bitmap)
     }
