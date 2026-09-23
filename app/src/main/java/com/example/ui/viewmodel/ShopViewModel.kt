@@ -624,12 +624,38 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             return false
         }
         if (draftItems.isEmpty()) return false
-        isInvoiceSubmissionInProgress = true
         val customerId = draftCustomer?.id ?: 0
 
-        val discVal = draftDiscountInput.toDoubleOrNull() ?: 0.0
-        val prepaymentVal = draftPrepaymentInput.toDoubleOrNull() ?: 0.0
-        val instCountVal = draftInstallmentsCountInput.toIntOrNull() ?: 0
+        val discountText = draftDiscountInput.trim()
+        val prepaymentText = draftPrepaymentInput.trim()
+        val installmentsText = draftInstallmentsCountInput.trim()
+
+        val discVal = when {
+            discountText.isEmpty() -> 0.0
+            else -> discountText.toDoubleOrNull() ?: run {
+                onError?.invoke("مبلغ تخفیف نامعتبر است.")
+                return false
+            }
+        }
+        val prepaymentVal = when {
+            prepaymentText.isEmpty() -> 0.0
+            else -> prepaymentText.toDoubleOrNull() ?: run {
+                onError?.invoke("مبلغ پیش‌پرداخت نامعتبر است.")
+                return false
+            }
+        }
+        val instCountVal = when {
+            installmentsText.isEmpty() -> 0
+            else -> installmentsText.toIntOrNull() ?: run {
+                onError?.invoke("تعداد اقساط نامعتبر است.")
+                return false
+            }
+        }
+
+        if (!discVal.isFinite() || !prepaymentVal.isFinite()) {
+            onError?.invoke("مبالغ فاکتور باید عددی معتبر و محدود باشند.")
+            return false
+        }
 
         val normalizedPaymentType = draftPaymentType.uppercase()
         if (normalizedPaymentType != "CASH" && normalizedPaymentType != "INSTALLMENT") {
@@ -653,6 +679,15 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         }
         val requestedDiscountBd = BigDecimal.valueOf(discVal).setScale(0, RoundingMode.HALF_UP)
         val requestedFinalBd = requestedSubtotalBd.subtract(requestedDiscountBd).max(BigDecimal.ZERO)
+        if (requestedSubtotalBd <= BigDecimal.ZERO) {
+            onError?.invoke("مبلغ فاکتور باید بیشتر از صفر باشد.")
+            return false
+        }
+        if (requestedDiscountBd > requestedSubtotalBd) {
+            onError?.invoke("تخفیف نمی‌تواند از مبلغ اقلام بیشتر باشد.")
+            return false
+        }
+
         val requestedPrepaymentBd = BigDecimal.valueOf(prepaymentVal).setScale(0, RoundingMode.HALF_UP)
         if (requestedPrepaymentBd > requestedFinalBd) {
             onError?.invoke("پیش‌پرداخت نمی‌تواند از مبلغ نهایی فاکتور بیشتر باشد.")
@@ -673,6 +708,16 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             }
         }
 
+        if (
+            normalizedPaymentType == "INSTALLMENT" &&
+            requestedPrepaymentBd == requestedFinalBd &&
+            requestedFinalBd > BigDecimal.ZERO
+        ) {
+            onError?.invoke("وقتی کل مبلغ تسویه شده است، نوع تسویه باید نقدی باشد.")
+            return false
+        }
+
+        isInvoiceSubmissionInProgress = true
         viewModelScope.launch {
             try {
                 val user = repository.getOrInitializeUser()
