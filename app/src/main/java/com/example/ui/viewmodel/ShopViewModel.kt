@@ -963,7 +963,11 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     }
 
     fun printActiveReceiptToHardware(onResult: (HardwareResult<Unit>) -> Unit = {}) =
-        printReceiptRasterToHardware(activePrintJobPayload.orEmpty(), onResult)
+        printReceiptRasterToHardware(
+            activePrintJobPayload.orEmpty(),
+            applicationContext?.let { receiptPaperDots(it) } ?: 576,
+            onResult
+        )
 
     fun printProductLabelToHardware(
         product: Product,
