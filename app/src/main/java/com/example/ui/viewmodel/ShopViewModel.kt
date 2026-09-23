@@ -781,7 +781,7 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         )
         isShowingPrinterReceiptSimulation = true
         viewModelScope.launch {
-            repository.logAction("RECEIPT_PREVIEW_READY", "پیش‌نمایش رسید داده‌محور فاکتور شماره ${{invoice.invoice.id}")
+            repository.logAction("RECEIPT_PREVIEW_READY", "پیش‌نمایش رسید داده‌محور فاکتور شماره ${invoice.invoice.id}")
         }
     }
 
