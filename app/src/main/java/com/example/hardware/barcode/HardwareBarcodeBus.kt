@@ -31,7 +31,6 @@ object HardwareBarcodeBus {
             }
             buffer.clear()
             lastCharAt = 0L
-            enabled = false
             return true
         }
 
