@@ -81,6 +81,7 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
     val connectionState by viewModel.hardwareConnectionState.collectAsState()
     val stableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
     val connectedDevice by viewModel.hardwareConnectedDevice.collectAsState()
+    val hardwareLastError by viewModel.hardwareLastError.collectAsState()
 
     LaunchedEffect(connectedDevice) {
         connectedDevice?.let { device ->
@@ -126,6 +127,9 @@ fun HardwareCenterScreen(viewModel: ShopViewModel, onBack: () -> Unit) {
                                 else -> TextGray
                             }
                         )
+                        hardwareLastError?.let { error ->
+                            Text("خطا: " + error, color = Color(0xFFFF5252), fontSize = 11.sp)
+                        }
                         if (connectionState == HardwareConnectionState.CONNECTED) {
                             OutlinedButton(onClick = viewModel::disconnectHardware) {
                                 Icon(Icons.Filled.Close, contentDescription = null)
