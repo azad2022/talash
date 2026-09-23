@@ -3064,9 +3064,15 @@ fun InvoiceScreen(
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
+                            enabled = !viewModel.isInvoiceSubmissionInProgress,
                             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("finalize_invoice_button")
                         ) {
-                            Text("ثبت قطعی و صدور سند فاکتور", color = DarkObsidian, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                if (viewModel.isInvoiceSubmissionInProgress) "در حال ثبت فاکتور..." else "ثبت قطعی و صدور سند فاکتور",
+                                color = DarkObsidian,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
                         }
                     }
                 }
