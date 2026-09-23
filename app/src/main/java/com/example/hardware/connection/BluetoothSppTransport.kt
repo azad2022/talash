@@ -57,7 +57,7 @@ class BluetoothSppTransport(private val context: Context) : HardwareTransport {
                 closeQuietly()
                 _state.value = HardwareConnectionState.ERROR
                 HardwareResult.Failure(
-                    "اتصال Bluetooth ناموفق بود: ${{e.localizedMessage ?: e.message ?: "خطای ناشناخته"}",
+                    "اتصال Bluetooth ناموفق بود: ${e.localizedMessage ?: e.message ?: "خطای ناشناخته"}",
                     e
                 )
             }
