@@ -1,5 +1,6 @@
 package com.example.hardware
 
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import com.example.hardware.barcode.HardwareBarcodeBus
 import kotlinx.coroutines.async
@@ -30,19 +31,10 @@ class HardwareBarcodeBusTest {
     fun active_bus_consumes_scan_and_emits_value() = runTest {
         HardwareBarcodeBus.setEnabled(true)
         val nextScan = async { HardwareBarcodeBus.scans.first() }
-        val events = listOf(
-            '1' to KeyEvent.KEYCODE_1,
-            '2' to KeyEvent.KEYCODE_2,
-            '3' to KeyEvent.KEYCODE_3,
-            '4' to KeyEvent.KEYCODE_4
-        )
-        events.forEach { (char, keyCode) ->
-            HardwareBarcodeBus.onKeyEvent(
-                KeyEvent(
-                    KeyEvent.ACTION_UP,
-                    keyCode
-                )
-            )
+        val events = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents("1234")
+            ?: error("Could not create virtual keyboard events")
+        events.forEach { event ->
+            HardwareBarcodeBus.onKeyEvent(event)
         }
         HardwareBarcodeBus.onKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
         assertEquals("1234", nextScan.await())
