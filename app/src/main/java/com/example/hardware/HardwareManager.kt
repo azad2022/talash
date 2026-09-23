@@ -308,6 +308,7 @@ class HardwareManager(
                     transports.remove(type)
                     clearConnected(type)
                     readerJobs.remove(type)?.cancel()
+                    active.disconnect()
                 }
             }
         }
