@@ -46,6 +46,7 @@ import com.example.ui.screens.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.ShopViewModel
 import com.example.hardware.barcode.HardwareBarcodeBus
+import com.example.ui.screens.hardware.HardwareCenterScreen
 import kotlinx.coroutines.launch
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
