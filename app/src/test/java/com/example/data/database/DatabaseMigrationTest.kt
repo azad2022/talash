@@ -47,7 +47,7 @@ class DatabaseMigrationTest {
         v8Db.close()
 
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11)
+            .addMigrations(AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12)
             .allowMainThreadQueries()
             .build()
 
@@ -77,6 +77,7 @@ class DatabaseMigrationTest {
         assertEquals(0, BigDecimal("23300000.0").compareTo(item.total))
         assertNotNull(item.customWeight)
         assertEquals(0, BigDecimal("5.25").compareTo(item.customWeight!!))
+        assertEquals(null, item.customKarat)
 
         val inst = invoices[0].installments[0]
         assertEquals(0, BigDecimal("5000000.0").compareTo(inst.amount))
@@ -120,7 +121,7 @@ class DatabaseMigrationTest {
         v10Db.close()
 
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_10_11)
+            .addMigrations(AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12)
             .allowMainThreadQueries()
             .build()
 
