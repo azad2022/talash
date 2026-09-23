@@ -337,6 +337,8 @@ class ShopRepository(
         }
     }
 
+    suspend fun getAllProductsForReceiptSync(): List<Product> = shopDao.getAllProductsSync()
+
     // --- INVOICES (SALES TRANSACTION) ---
     val invoices: Flow<List<InvoiceWithDetails>> = shopDao.getInvoicesWithDetails()
 
