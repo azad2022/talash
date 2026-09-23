@@ -87,6 +87,7 @@ class HardwareManager(
     private val transports = mutableMapOf<HardwareDeviceType, HardwareTransport>()
     private val readerJobs = mutableMapOf<HardwareDeviceType, Job>()
     private val stateJobs = mutableMapOf<HardwareDeviceType, Job>()
+    private var scaleWatchdogJob: Job? = null
 
     private val weightDetector = StableWeightDetector()
     private val inputBuffer = StringBuilder()
@@ -251,6 +252,8 @@ class HardwareManager(
         transports.remove(type)?.disconnect()
 
         if (type == HardwareDeviceType.SCALE) {
+            scaleWatchdogJob?.cancel()
+            scaleWatchdogJob = null
             weightDetector.reset()
             inputBuffer.clear()
             _latestStableWeight.value = null
@@ -355,7 +358,15 @@ class HardwareManager(
         val parsed = ScaleWeightParser.parse(line) ?: return
         val normalized = ScaleWeightParser.normalizeGrams(parsed, detectUnit(line)) ?: return
         if (normalized <= BigDecimal.ZERO) return
-        _latestStableWeight.value = weightDetector.addSample(normalized) ?: return
+
+        _latestStableWeight.value = weightDetector.addSample(normalized)
+
+        scaleWatchdogJob?.cancel()
+        scaleWatchdogJob = scope.launch {
+            kotlinx.coroutines.delay(1500L)
+            _latestStableWeight.value = null
+            weightDetector.reset()
+        }
     }
 
     private fun detectUnit(text: String): String =
