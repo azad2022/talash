@@ -2689,6 +2689,25 @@ fun InvoiceScreen(
                         Button(
                             onClick = {
                                 val stable = hardwareStableWeight
+                                val onlyItem = cartItems.singleOrNull()
+                                if (stable == null) {
+                                    Toast.makeText(context, "هنوز وزن پایدار دریافت نشده است.", Toast.LENGTH_SHORT).show()
+                                } else if (onlyItem == null) {
+                                    Toast.makeText(context, "برای ثبت وزن مستقیم، سبد باید دقیقاً یک قلم داشته باشد.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
+                                    viewModel.applyStableWeightToDraft(onlyItem.product.id, stable.grams)
+                                    Toast.makeText(context, "وزن پایدار برای قلم ثبت و قیمت با وزن جدید بازمحاسبه شد.", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("ثبت در قلم فاکتور", fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                val stable = hardwareStableWeight
                                 if (stable != null) {
                                     weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
                                 } else {
