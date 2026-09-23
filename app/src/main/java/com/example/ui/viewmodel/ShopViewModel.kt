@@ -621,6 +621,48 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         val prepaymentVal = draftPrepaymentInput.toDoubleOrNull() ?: 0.0
         val instCountVal = draftInstallmentsCountInput.toIntOrNull() ?: 0
 
+        val normalizedPaymentType = draftPaymentType.uppercase()
+        if (normalizedPaymentType != "CASH" && normalizedPaymentType != "INSTALLMENT") {
+            onError?.invoke("نوع تسویه فاکتور نامعتبر است.")
+            return false
+        }
+        if (draftItems.any { it.qty <= 0 }) {
+            onError?.invoke("تعداد هیچ قلمی از فاکتور نمی‌تواند صفر یا منفی باشد.")
+            return false
+        }
+        if (discVal < 0.0) {
+            onError?.invoke("مبلغ تخفیف نمی‌تواند منفی باشد.")
+            return false
+        }
+        if (prepaymentVal < 0.0) {
+            onError?.invoke("مبلغ پیش‌پرداخت نمی‌تواند منفی باشد.")
+            return false
+        }
+        val requestedSubtotalBd = draftItems.fold(BigDecimal.ZERO) { acc, item ->
+            acc.add(BigDecimal.valueOf(item.exactSalePrice).setScale(0, RoundingMode.HALF_UP))
+        }
+        val requestedDiscountBd = BigDecimal.valueOf(discVal).setScale(0, RoundingMode.HALF_UP)
+        val requestedFinalBd = requestedSubtotalBd.subtract(requestedDiscountBd).max(BigDecimal.ZERO)
+        val requestedPrepaymentBd = BigDecimal.valueOf(prepaymentVal).setScale(0, RoundingMode.HALF_UP)
+        if (requestedPrepaymentBd > requestedFinalBd) {
+            onError?.invoke("پیش‌پرداخت نمی‌تواند از مبلغ نهایی فاکتور بیشتر باشد.")
+            return false
+        }
+        if (normalizedPaymentType == "INSTALLMENT" && requestedPrepaymentBd < requestedFinalBd && instCountVal <= 0) {
+            onError?.invoke("برای مبلغ باقی‌مانده باید حداقل یک قسط تعیین شود.")
+            return false
+        }
+        if (normalizedPaymentType == "CASH" && requestedPrepaymentBd != BigDecimal.ZERO) {
+            onError?.invoke("در تسویه نقدی نباید پیش‌پرداخت جداگانه ثبت شود.")
+            return false
+        }
+        if (normalizedPaymentType == "CASH") {
+            if (instCountVal != 0) {
+                onError?.invoke("در تسویه نقدی تعداد اقساط باید صفر باشد.")
+                return false
+            }
+        }
+
         viewModelScope.launch {
             try {
                 val user = repository.getOrInitializeUser()
@@ -662,15 +704,15 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                     totalAmount = finalPayableBd,
                     discount = discBd,
                     tax = taxEst,
-                    paidAmount = if (draftPaymentType == "CASH") finalPayableBd else prepaymentBd,
-                    paymentType = draftPaymentType,
+                    paidAmount = if (normalizedPaymentType == "CASH") finalPayableBd else prepaymentBd,
+                    paymentType = normalizedPaymentType,
                     installmentsCount = instCountVal,
                     prepayment = prepaymentBd
                 )
 
                 // Create installments with exact remainder distribution
                 val installmentsList = mutableListOf<Installment>()
-                if (draftPaymentType == "INSTALLMENT" && instCountVal > 0) {
+                if (normalizedPaymentType == "INSTALLMENT" && instCountVal > 0) {
                     val installmentAmounts = invoiceCalculatorUseCase.calculateInstallments(
                         remainingAmount = remainingBalanceBd,
                         installmentsCount = instCountVal
