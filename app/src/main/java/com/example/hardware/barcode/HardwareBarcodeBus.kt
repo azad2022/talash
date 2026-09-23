@@ -30,10 +30,18 @@ object HardwareBarcodeBus {
     @Synchronized
     fun onKeyEvent(event: KeyEvent): Boolean {
         if (!enabled) return false
+
+        val isTerminator =
+            event.keyCode == KeyEvent.KEYCODE_ENTER ||
+            event.keyCode == KeyEvent.KEYCODE_TAB
+        val isDataKey = event.unicodeChar != 0
+
+        if (!isTerminator && !isDataKey) return false
         if (event.action != KeyEvent.ACTION_UP) return true
+
         val now = System.currentTimeMillis()
 
-        if (event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_TAB) {
+        if (isTerminator) {
             if (buffer.length >= MIN_LENGTH && now - lastCharAt <= MAX_INTER_KEY_DELAY_MS) {
                 _scans.tryEmit(buffer.toString())
             }
@@ -42,10 +50,8 @@ object HardwareBarcodeBus {
             return true
         }
 
-        val codePoint = event.unicodeChar
-        if (codePoint == 0) return true
         if (lastCharAt > 0L && now - lastCharAt > MAX_INTER_KEY_DELAY_MS) buffer.clear()
-        buffer.appendCodePoint(codePoint)
+        buffer.appendCodePoint(event.unicodeChar)
         lastCharAt = now
         return true
     }
