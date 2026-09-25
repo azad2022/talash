@@ -47,11 +47,18 @@ object ReceiptFormatter {
             b.appendLine(separator)
         }
 
+        val totalWeight = invoice.items.fold(BigDecimal.ZERO) { acc, item ->
+            val product = productsById[item.productId]
+            val w = item.customWeight ?: product?.weightGram ?: BigDecimal.ZERO
+            acc.add(w.multiply(BigDecimal.valueOf(item.quantity.toLong())))
+        }
+
+        b.appendLine("مجموع وزن طلا: ${formatWeight(totalWeight)} گرم")
         b.appendLine("جمع اقلام: ${formatMoney(invoice.invoice.totalAmount.add(invoice.invoice.discount))} تومان")
         if (invoice.invoice.discount > BigDecimal.ZERO) {
             b.appendLine("تخفیف: ${formatMoney(invoice.invoice.discount)} تومان")
         }
-        b.appendLine("مالیات محاسبه‌شده: ${formatMoney(invoice.invoice.tax)} تومان")
+        b.appendLine("مالیات قانونی (۹٪ اجرت و سود): ${formatMoney(invoice.invoice.tax)} تومان")
         b.appendLine("مبلغ نهایی: ${formatMoney(invoice.invoice.totalAmount)} تومان")
         b.appendLine("نوع تسویه: " + if (invoice.invoice.paymentType == "CASH") "نقدی (کامل)" else "اقساطی")
 

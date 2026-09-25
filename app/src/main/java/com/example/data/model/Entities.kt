@@ -149,6 +149,7 @@ data class Product(
         return when (category) {
             "طلای ۲۴ عیار" -> weightGram.multiply(rateGold24k)
             "طلای آبشده نقدی" -> weightGram.multiply(rateGoldMelted)
+            "طلای متفرقه و مستعمل" -> weightGram.multiply(dailyPrice18k).multiply(BigDecimal.valueOf(karat.toLong())).divide(BigDecimal.valueOf(18), 0, java.math.RoundingMode.HALF_UP)
             "انس جهانی طلا" -> weightGram.multiply(rateGoldOunce).multiply(rateCurrencyUsd)
             "سکه یک گرمی" -> rateCoin1g
             "ربع سکه" -> rateCoinQuarter

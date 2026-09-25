@@ -267,11 +267,24 @@ fun DashboardScreen(
     val totalGoldWeight = listProducts.sumOf { it.weightGram.toDouble() * it.stock }
     val totalPiecesCount = listProducts.sumOf { it.stock }
 
-    val totalTodaySales = listInvoices.fold(BigDecimal.ZERO) { acc, inv -> acc.add(inv.invoice.totalAmount) }.toDouble()
+    val now = System.currentTimeMillis()
+    val startOfToday = com.example.data.repository.BusinessDayUtils.getStartOfDay(now)
+    val endOfToday = com.example.data.repository.BusinessDayUtils.getEndOfDay(now)
+
+    val todayInvoices = listInvoices.filter {
+        it.invoice.date in startOfToday..endOfToday && !it.invoice.paymentType.startsWith("CANCELLED")
+    }
+
+    val totalTodaySales = todayInvoices.fold(BigDecimal.ZERO) { acc, inv -> acc.add(inv.invoice.totalAmount) }.toDouble()
     val estimatedTodayProfit = totalTodaySales * 0.07 // 7% legal standard profit in gold trading
+    val todaySoldGoldWeight = todayInvoices.sumOf { inv ->
+        inv.items.sumOf { item ->
+            (item.customWeight ?: BigDecimal.ZERO).toDouble() * item.quantity
+        }
+    }
     val readyRepairs = listRepairs.filter { it.repair.status == "READY" }
     val lowStockCount = listProducts.filter { it.stock <= it.minStock }.size
-    val overdueInstallments = listInstallments.filter { !it.paid && it.dueDate < System.currentTimeMillis() }
+    val overdueInstallments = listInstallments.filter { !it.paid && it.dueDate < now }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 340.dp),
@@ -616,24 +629,24 @@ fun DashboardScreen(
             }
         }
 
-        // Metric Grid (Col 2 Layout for secondary indicators)
+        // Metric Grid (Col 3 Layout for daily business indicators)
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Today's Legal 7% Profit (سود قانونی امروز)
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(SmokyCard)
-                        .border(1.dp, MetallicGold, RoundedCornerShape(18.dp))
-                        .padding(14.dp)
+                        .border(1.dp, MetallicGold.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                        .padding(12.dp)
                 ) {
                     Column {
                         Text(
-                            text = "سود خالص امروز (۷٪)",
+                            text = "سود امروز (۷٪)",
                             color = TextGray,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium
@@ -641,21 +654,21 @@ fun DashboardScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (viewModel.isDashboardValuesHidden) "••••••••" else viewModel.formatCurrency(estimatedTodayProfit),
-                            fontSize = 15.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (viewModel.isDashboardValuesHidden) TextGray else (if (estimatedTodayProfit > 0) com.example.ui.theme.StatusGreen else TextWhite)
                         )
                     }
                 }
 
-                // Today's Cash Turnout (فروش نقدی سیستم)
+                // Today's Sales (فروش امروز)
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(SmokyCard)
-                        .border(1.dp, MetallicGold, RoundedCornerShape(18.dp))
-                        .padding(14.dp)
+                        .border(1.dp, MetallicGold.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                        .padding(12.dp)
                 ) {
                     Column {
                         Text(
@@ -666,10 +679,36 @@ fun DashboardScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = viewModel.formatCurrency(totalTodaySales),
-                            fontSize = 15.sp,
+                            text = if (viewModel.isDashboardValuesHidden) "••••••••" else viewModel.formatCurrency(totalTodaySales),
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
+                        )
+                    }
+                }
+
+                // Today's Gold Outflow (طلای خارج شده امروز)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SmokyCard)
+                        .border(1.dp, MetallicGold.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "طلای فروش‌رفته",
+                            color = TextGray,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (viewModel.isDashboardValuesHidden) "••••••••" else "${viewModel.formatWeight(todaySoldGoldWeight)} گرم",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MetallicGold
                         )
                     }
                 }
@@ -1115,10 +1154,19 @@ fun LegendItem(color: Color, title: String, icon: ImageVector) {
 @Composable
 fun CalculatorScreen(
     viewModel: ShopViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToTab: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val userConfig by viewModel.userConfig.collectAsState()
+    val dailyPrice = (userConfig?.dailyGoldPrice ?: BigDecimal.ZERO).toDouble()
     var isWagePercent by remember { mutableStateOf(viewModel.calcWageType == "PERCENT") }
+
+    LaunchedEffect(dailyPrice) {
+        if (viewModel.calcGoldPriceToday == "0" && dailyPrice > 0) {
+            viewModel.calcGoldPriceToday = BigDecimal.valueOf(dailyPrice).toLong().toString()
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -1129,16 +1177,69 @@ fun CalculatorScreen(
     ) {
         item {
             Text(
-                "محاسبه‌گر پیشرفته و لوکس طلا",
+                "محاسبه‌گر تخصصی و پیشرفته زرگری",
                 style = MaterialTheme.typography.titleMedium,
                 color = MetallicGold,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                "فرمولاسیون محاسبه نرخ با جزئیات ارزش افزوده و سود اصناف مستقل",
+                "تبدیل مظنه به گرم، محاسبه فروش طلای نو و خرید طلای مستعمل از مشتری",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextGray
             )
+        }
+
+        // Mode Switcher (Sale vs Scrap Purchase)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                border = BorderStroke(1.dp, CharcoalBorder)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isSale = viewModel.calcMode == "SALE"
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSale) MetallicGold else SmokyBronze)
+                            .border(1.dp, if (isSale) MetallicGold else CharcoalBorder, RoundedCornerShape(8.dp))
+                            .clickable { viewModel.calcMode = "SALE" },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "فروش طلای نو (با اجرت و سود)",
+                            color = if (isSale) DarkObsidian else TextWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (!isSale) MetallicGold else SmokyBronze)
+                            .border(1.dp, if (!isSale) MetallicGold else CharcoalBorder, RoundedCornerShape(8.dp))
+                            .clickable { viewModel.calcMode = "PURCHASE_USED" },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "خرید طلای مستعمل از مشتری",
+                            color = if (!isSale) DarkObsidian else TextWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
         }
 
         // Live Inputs form
@@ -1152,125 +1253,236 @@ fun CalculatorScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Gram weight
-                    OutlinedTextField(
-                        value = viewModel.calcWeight,
-                        onValueChange = { viewModel.calcWeight = it },
-                        label = { Text("وزن طلا (گرم)", color = TextGray) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MetallicGold,
-                            unfocusedBorderColor = CharcoalBorder,
-                            focusedLabelColor = MetallicGold,
-                            unfocusedLabelColor = TextGray,
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth().testTag("weight_input")
-                    )
-
-                    // Base gold price today
-                    OutlinedTextField(
-                        value = viewModel.calcGoldPriceToday,
-                        onValueChange = { viewModel.calcGoldPriceToday = it },
-                        label = { Text("قیمت گرم طلای عیار ۱۸ مبنا (تومان)", color = TextGray) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MetallicGold,
-                            unfocusedBorderColor = CharcoalBorder,
-                            focusedLabelColor = MetallicGold,
-                            unfocusedLabelColor = TextGray,
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().testTag("base_gold_input")
-                    )
-
-                    // Karat Chip chooser
-                    Text("عیار سنجی کالا", color = TextWhite, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(18, 21, 22, 24).forEach { kVal ->
-                            val selected = viewModel.calcKarat == kVal
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(38.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (selected) MetallicGold else SmokyBronze)
-                                    .border(1.dp, if (selected) MetallicGold else CharcoalBorder, RoundedCornerShape(10.dp))
-                                    .clickable { viewModel.calcKarat = kVal },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "$kVal عیار",
-                                    color = if (selected) DarkObsidian else TextWhite,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    // Wage Value and Switcher
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = viewModel.calcWageValue,
-                            onValueChange = { viewModel.calcWageValue = it },
-                            label = { Text(if (isWagePercent) "درصد اجرت (%)" else "اجرت ثابت (تومان/گرم)", color = TextGray) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MetallicGold,
-                                unfocusedBorderColor = CharcoalBorder,
-                                focusedLabelColor = MetallicGold,
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite
-                            ),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.weight(1.5f).testTag("wage_input")
-                        )
-
-                        // Wage type button switcher
-                        Button(
-                            onClick = {
-                                isWagePercent = !isWagePercent
-                                viewModel.calcWageType = if (isWagePercent) "PERCENT" else "FIXED"
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = SmokyBronze),
-                            border = BorderStroke(1.dp, MetallicGold.copy(0.3f)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f).height(56.dp)
-                        ) {
-                            Text(if (isWagePercent) "درصدی" else "مبلغ ثابت", fontSize = 11.sp, color = MetallicGold, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    // Discounts and taxes
+                    // Mazaneh (1 Mesghal 17k) & 18k Gram Gold live synchronized row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedTextField(
-                            value = viewModel.calcDiscount,
-                            onValueChange = { viewModel.calcDiscount = it },
-                            label = { Text("تخفیف دستی", color = TextGray) },
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MetallicGold, unfocusedBorderColor = CharcoalBorder, focusedTextColor = TextWhite, unfocusedTextColor = TextWhite),
+                            value = viewModel.calcMazaneh,
+                            onValueChange = { viewModel.updateGoldPriceTodayFromMazaneh(it) },
+                            label = { Text("مظنه مثقال ۱۷ (تومان)", color = TextGray) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MetallicGold,
+                                unfocusedBorderColor = CharcoalBorder,
+                                focusedLabelColor = MetallicGold,
+                                unfocusedLabelColor = TextGray,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite
+                            ),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1.2f)
                         )
 
                         OutlinedTextField(
-                            value = viewModel.calcTaxRate,
-                            onValueChange = { viewModel.calcTaxRate = it },
-                            label = { Text("مالیات %", color = TextGray) },
+                            value = viewModel.calcGoldPriceToday,
+                            onValueChange = { viewModel.updateGoldPriceTodayFromGram(it) },
+                            label = { Text("گرم ۱۸ عیار (تومان)", color = TextGray) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MetallicGold,
+                                unfocusedBorderColor = CharcoalBorder,
+                                focusedLabelColor = MetallicGold,
+                                unfocusedLabelColor = TextGray,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite
+                            ),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1.2f).testTag("base_gold_input")
+                        )
+                    }
+                    Text(
+                        "فرمول بازار طلا: ۱ مثقال ۱۷ عیار (۷۰۵) = ۴.۳۳۱۸ گرم ۱۸ عیار (۷۵۰)",
+                        color = MetallicGold.copy(alpha = 0.7f),
+                        fontSize = 10.sp
+                    )
+
+                    // Gram weight & Stone weight row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = viewModel.calcWeight,
+                            onValueChange = { viewModel.calcWeight = it },
+                            label = { Text("وزن ناخالص (گرم)", color = TextGray) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MetallicGold,
+                                unfocusedBorderColor = CharcoalBorder,
+                                focusedLabelColor = MetallicGold,
+                                unfocusedLabelColor = TextGray,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite
+                            ),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.weight(1.3f).testTag("weight_input")
+                        )
+
+                        OutlinedTextField(
+                            value = viewModel.calcStoneWeight,
+                            onValueChange = { viewModel.calcStoneWeight = it },
+                            label = { Text("کسر نگین (گرم)", color = TextGray) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MetallicGold,
+                                unfocusedBorderColor = CharcoalBorder,
+                                focusedLabelColor = MetallicGold,
+                                unfocusedLabelColor = TextGray,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite
+                            ),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    // Net weight badge
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SmokyBronze.copy(alpha = 0.6f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("وزن خالص طلای قابل محاسبه:", color = TextGray, fontSize = 11.sp)
+                        Text(
+                            "${viewModel.formatWeight(viewModel.calcNetWeight)} گرم",
+                            color = MetallicGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    if (viewModel.calcMode == "SALE") {
+                        // Karat Chip chooser
+                        Text("عیار سنجی کالا", color = TextWhite, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(18, 21, 22, 24).forEach { kVal ->
+                                val selected = viewModel.calcKarat == kVal
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selected) MetallicGold else SmokyBronze)
+                                        .border(1.dp, if (selected) MetallicGold else CharcoalBorder, RoundedCornerShape(10.dp))
+                                        .clickable { viewModel.calcKarat = kVal },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "$kVal عیار",
+                                        color = if (selected) DarkObsidian else TextWhite,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Wage Value and Switcher
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = viewModel.calcWageValue,
+                                onValueChange = { viewModel.calcWageValue = it },
+                                label = { Text(if (isWagePercent) "درصد اجرت (%)" else "اجرت ثابت (تومان/گرم)", color = TextGray) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MetallicGold,
+                                    unfocusedBorderColor = CharcoalBorder,
+                                    focusedLabelColor = MetallicGold,
+                                    focusedTextColor = TextWhite,
+                                    unfocusedTextColor = TextWhite
+                                ),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1.5f).testTag("wage_input")
+                            )
+
+                            // Wage type button switcher
+                            Button(
+                                onClick = {
+                                    isWagePercent = !isWagePercent
+                                    viewModel.calcWageType = if (isWagePercent) "PERCENT" else "FIXED"
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SmokyBronze),
+                                border = BorderStroke(1.dp, MetallicGold.copy(0.3f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f).height(56.dp)
+                            ) {
+                                Text(if (isWagePercent) "درصدی" else "مبلغ ثابت", fontSize = 11.sp, color = MetallicGold, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // Discounts and taxes
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = viewModel.calcDiscount,
+                                onValueChange = { viewModel.calcDiscount = it },
+                                label = { Text("تخفیف دستی", color = TextGray) },
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MetallicGold, unfocusedBorderColor = CharcoalBorder, focusedTextColor = TextWhite, unfocusedTextColor = TextWhite),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            OutlinedTextField(
+                                value = viewModel.calcTaxRate,
+                                onValueChange = { viewModel.calcTaxRate = it },
+                                label = { Text("مالیات %", color = TextGray) },
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MetallicGold, unfocusedBorderColor = CharcoalBorder, focusedTextColor = TextWhite, unfocusedTextColor = TextWhite),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    } else {
+                        // Scrap Gold Purchase Mode
+                        Text("عیار خرید عرف بازار برای طلای مستعمل", color = TextWhite, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf("750" to "۷۵۰ (۱۸ کامل)", "740" to "۷۴۰ (عرف بازار)", "735" to "۷۳۵ (فرسوده)").forEach { (purityCode, purityLabel) ->
+                                val selected = viewModel.calcScrapPurityRate == purityCode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selected) MetallicGold else SmokyBronze)
+                                        .border(1.dp, if (selected) MetallicGold else CharcoalBorder, RoundedCornerShape(10.dp))
+                                        .clickable { viewModel.calcScrapPurityRate = purityCode },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        purityLabel,
+                                        color = if (selected) DarkObsidian else TextWhite,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = viewModel.calcDiscount,
+                            onValueChange = { viewModel.calcDiscount = it },
+                            label = { Text("کسورات خرید / توافقی (تومان)", color = TextGray) },
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MetallicGold, unfocusedBorderColor = CharcoalBorder, focusedTextColor = TextWhite, unfocusedTextColor = TextWhite),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Text(
+                            "نکته صنف طلا: طلای مستعمل خریداری‌شده از مشتری فاقد اجرت ساخت و سود بوده و قانوناً معاف از مالیات بر ارزش افزوده است.",
+                            color = TextGray,
+                            fontSize = 10.sp
                         )
                     }
                 }
@@ -1288,32 +1500,77 @@ fun CalculatorScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("صورت ریز محاسبات طلا", color = MetallicGold, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    val isSale = viewModel.calcMode == "SALE"
+                    Text(
+                        if (isSale) "صورت ریز محاسبات فروش طلای نو" else "صورت ریز خرید طلای مستعمل از مشتری",
+                        color = MetallicGold,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
                     
-                    CalculationRow("ارزش خام طلا:", "${viewModel.formatCurrency(viewModel.calcBaseGoldPrice)} تومان")
-                    CalculationRow("اجرت کارمزد ساخت:", "${viewModel.formatCurrency(viewModel.calcWagePrice)} تومان")
-                    CalculationRow("سود تک فروشی (۷٪ قانونی):", "${viewModel.formatCurrency(viewModel.calcDealerProfit)} تومان")
-                    CalculationRow("مالیات و عوارض دولت:", "${viewModel.formatCurrency(viewModel.calcTaxAndDuty)} تومان")
-                    
-                    if ((viewModel.calcDiscount.toDoubleOrNull() ?: 0.0) > 0) {
-                        CalculationRow("تخفیف کسر شده:", "- ${viewModel.formatCurrency(viewModel.calcDiscount.toDoubleOrNull() ?: 0.0)} تومان", Color.Red)
+                    if ((viewModel.calcStoneWeight.toDoubleOrNull() ?: 0.0) > 0.0) {
+                        CalculationRow("وزن ناخالص کالا:", "${viewModel.calcWeight} گرم")
+                        CalculationRow("کسر نگین (سنگ):", "- ${viewModel.calcStoneWeight} گرم", Color(0xFFFF9800))
+                        CalculationRow("وزن خالص طلا:", "${viewModel.formatWeight(viewModel.calcNetWeight)} گرم", MetallicGold)
                     }
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MetallicGold.copy(0.2f))
+                    if (isSale) {
+                        CalculationRow("ارزش خام طلا:", "${viewModel.formatCurrency(viewModel.calcBaseGoldPrice)} تومان")
+                        CalculationRow("اجرت کارمزد ساخت:", "${viewModel.formatCurrency(viewModel.calcWagePrice)} تومان")
+                        CalculationRow("سود تک فروشی (۷٪ قانونی):", "${viewModel.formatCurrency(viewModel.calcDealerProfit)} تومان")
+                        CalculationRow("مالیات و عوارض دولت (۹٪ اجرت و سود):", "${viewModel.formatCurrency(viewModel.calcTaxAndDuty)} تومان")
+                        
+                        if ((viewModel.calcDiscount.toDoubleOrNull() ?: 0.0) > 0) {
+                            CalculationRow("تخفیف کسر شده:", "- ${viewModel.formatCurrency(viewModel.calcDiscount.toDoubleOrNull() ?: 0.0)} تومان", Color.Red)
+                        }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("جمع کل بهای خریدار:", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text(
-                            "${viewModel.formatCurrency(viewModel.calcFinalAmount)} تومان",
-                            color = MetallicGold,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 19.sp,
-                            modifier = Modifier.testTag("calculator_result")
-                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MetallicGold.copy(0.2f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("جمع کل بهای خریدار:", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(
+                                "${viewModel.formatCurrency(viewModel.calcFinalAmount)} تومان",
+                                color = MetallicGold,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 19.sp,
+                                modifier = Modifier.testTag("calculator_result")
+                            )
+                        }
+                    } else {
+                        // Purchase used breakdown
+                        val goldPriceToday = viewModel.calcGoldPriceToday.toDoubleOrNull() ?: 0.0
+                        val netW = viewModel.calcNetWeight
+                        val purityVal = viewModel.calcScrapPurityRate.toDoubleOrNull() ?: 740.0
+                        val rawValue = netW * goldPriceToday * (purityVal / 750.0)
+                        CalculationRow("نرخ روز هر گرم ۱۸ عیار:", "${viewModel.formatCurrency(goldPriceToday)} تومان")
+                        CalculationRow("عیار محاسبه خرید:", "$purityVal از ۷۵۰")
+                        CalculationRow("ارزش بر مبنای عیار خرید:", "${viewModel.formatCurrency(rawValue)} تومان")
+                        CalculationRow("اجرت و سود:", "۰ تومان (معاف)", MetallicGold)
+                        CalculationRow("مالیات بر ارزش افزوده:", "۰ تومان (معاف)", MetallicGold)
+                        if ((viewModel.calcDiscount.toDoubleOrNull() ?: 0.0) > 0) {
+                            CalculationRow("کسورات توافقی:", "- ${viewModel.formatCurrency(viewModel.calcDiscount.toDoubleOrNull() ?: 0.0)} تومان", Color.Red)
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MetallicGold.copy(0.2f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("مبلغ پرداختی به مشتری:", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(
+                                "${viewModel.formatCurrency(viewModel.calcScrapPurchaseAmount)} تومان",
+                                color = MetallicGold,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 19.sp,
+                                modifier = Modifier.testTag("calculator_result")
+                            )
+                        }
                     }
                 }
             }
@@ -1321,37 +1578,73 @@ fun CalculatorScreen(
 
         // Fast actions
         item {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Add to Invoice Button
                 Button(
                     onClick = {
-                        viewModel.loadCalculatorPriceToAppConfig()
-                        Toast.makeText(context, "قیمت و مالیات مبنای کل سیستم تنظیم شد", Toast.LENGTH_SHORT).show()
+                        viewModel.addCalculatorResultToInvoiceDraft(
+                            onSuccess = { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                onNavigateToTab?.invoke("invoice")
+                            },
+                            onError = { err ->
+                                Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                            }
+                        )
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = SmokyCard),
-                    border = BorderStroke(1.dp, MetallicGold),
-                    modifier = Modifier.weight(1f)
+                    colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
-                    Text("ست کردن قیمت مبنا", color = MetallicGold, fontSize = 12.sp)
+                    Icon(
+                        imageVector = Icons.Filled.AddShoppingCart,
+                        contentDescription = null,
+                        tint = DarkObsidian,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (viewModel.calcMode == "SALE") "افزودن این محاسبه به فاکتور فروش" else "ثبت این خرید در فاکتور",
+                        color = DarkObsidian,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
                 }
 
-                Button(
-                    onClick = {
-                        // Reset Calculator form fields to standard
-                        viewModel.calcWeight = "1.0"
-                        viewModel.calcWageValue = "10"
-                        viewModel.calcDiscount = "0"
-                        Toast.makeText(context, "فرست بازنشانی انجام شد", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = SmokyCard),
-                    border = BorderStroke(1.dp, CharcoalBorder),
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("صفر کردن فرم", color = TextWhite, fontSize = 12.sp)
+                    Button(
+                        onClick = {
+                            viewModel.loadCalculatorPriceToAppConfig()
+                            Toast.makeText(context, "قیمت و مالیات مبنای کل سیستم تنظیم شد", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SmokyCard),
+                        border = BorderStroke(1.dp, MetallicGold),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("ست کردن قیمت مبنا", color = MetallicGold, fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            viewModel.calcWeight = "1.0"
+                            viewModel.calcStoneWeight = "0"
+                            viewModel.calcWageValue = "10"
+                            viewModel.calcDiscount = "0"
+                            Toast.makeText(context, "فرم بازنشانی شد", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SmokyCard),
+                        border = BorderStroke(1.dp, CharcoalBorder),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("صفر کردن فرم", color = TextWhite, fontSize = 12.sp)
+                    }
                 }
             }
         }
@@ -1464,7 +1757,11 @@ fun WarehouseScreen(
         val matchesSearch = prod.name.contains(searchQuery, ignoreCase = true) ||
                             barcode.contains(searchQuery, ignoreCase = true) ||
                             prod.customBarcode.contains(searchQuery, ignoreCase = true)
-        val matchesCategory = selectedCategoryFilter == "همه" || prod.category == selectedCategoryFilter
+        val matchesCategory = when (selectedCategoryFilter) {
+            "همه" -> true
+            "کسری موجودی" -> prod.stock <= prod.minStock
+            else -> prod.category == selectedCategoryFilter
+        }
         matchesSearch && matchesCategory
     }
 
@@ -1584,18 +1881,35 @@ fun WarehouseScreen(
                         .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    (listOf("همه") + ProductCategory.allTitles()).forEach { cat ->
+                    (listOf("همه", "کسری موجودی") + ProductCategory.allTitles()).forEach { cat ->
                         val selected = selectedCategoryFilter == cat
+                        val isWarningChip = cat == "کسری موجودی"
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (selected) MetallicGold else SmokyCard)
-                                .border(1.dp, if (selected) MetallicGold else CharcoalBorder, RoundedCornerShape(12.dp))
+                                .background(
+                                    if (selected) (if (isWarningChip) Color(0xFFFF5252) else MetallicGold)
+                                    else SmokyCard
+                                )
+                                .border(
+                                    1.dp,
+                                    if (selected) (if (isWarningChip) Color(0xFFFF5252) else MetallicGold)
+                                    else if (isWarningChip) Color(0xFFFF5252).copy(alpha = 0.5f)
+                                    else CharcoalBorder,
+                                    RoundedCornerShape(12.dp)
+                                )
                                 .clickable { selectedCategoryFilter = cat }
                                 .padding(horizontal = 14.dp, vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(cat, color = if (selected) DarkObsidian else TextWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                cat,
+                                color = if (selected) (if (isWarningChip) Color.White else DarkObsidian)
+                                        else if (isWarningChip) Color(0xFFFF5252)
+                                        else TextWhite,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -1976,7 +2290,34 @@ fun WarehouseScreen(
                                 val selected = addCategory == cat
                                 FilterChip(
                                     selected = selected,
-                                    onClick = { addCategory = cat },
+                                    onClick = {
+                                        addCategory = cat
+                                        when (cat) {
+                                            "سکه امامی", "سکه بهار آزادی" -> {
+                                                addWeight = "8.133"
+                                                addKarat = 22
+                                                addWageValue = "0"
+                                            }
+                                            "نیم سکه" -> {
+                                                addWeight = "4.066"
+                                                addKarat = 22
+                                                addWageValue = "0"
+                                            }
+                                            "ربع سکه" -> {
+                                                addWeight = "2.033"
+                                                addKarat = 22
+                                                addWageValue = "0"
+                                            }
+                                            "سکه یک گرمی" -> {
+                                                addWeight = "1.000"
+                                                addKarat = 22
+                                                addWageValue = "0"
+                                            }
+                                            "طلای ۲۴ عیار" -> {
+                                                addKarat = 24
+                                            }
+                                        }
+                                    },
                                     label = { Text(cat) },
                                     modifier = Modifier.padding(horizontal = 4.dp)
                                 )
@@ -2093,7 +2434,15 @@ fun WarehouseScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(
                                 onClick = {
-                                    val finalWeight = addWeight.toDoubleOrNull() ?: 0.0
+                                    val parsedWeight = addWeight.toDoubleOrNull() ?: 0.0
+                                    val defaultCoinWeight = when (addCategory) {
+                                        "سکه امامی", "سکه بهار آزادی" -> 8.133
+                                        "نیم سکه" -> 4.066
+                                        "ربع سکه" -> 2.033
+                                        "سکه یک گرمی" -> 1.000
+                                        else -> 0.0
+                                    }
+                                    val finalWeight = if (parsedWeight > 0.0) parsedWeight else defaultCoinWeight
                                     val finalWage = addWageValue.toDoubleOrNull() ?: 0.0
                                     val finalStock = addStock.toIntOrNull() ?: 1
                                     val minAlert = addMinStock.toIntOrNull() ?: 1
@@ -3046,6 +3395,8 @@ fun InvoiceScreen(
                         HorizontalDivider(color = MetallicGold.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 4.dp))
 
                         // Checkout Summary Text
+                        val totalCartGoldWeight = cartItems.sumOf { (it.customWeight?.toDouble() ?: it.product.weightGram.toDouble()) * it.qty }
+                        CalculationRow("مجموع وزن طلای اقلام:", "${viewModel.formatWeight(totalCartGoldWeight)} گرم", MetallicGold)
                         CalculationRow("بهای کل ناخالص کالاها:", "${viewModel.formatCurrency(viewModel.draftCartTotalAmount)} تومان")
                         if ((viewModel.draftDiscountInput.toDoubleOrNull() ?: 0.0) > 0) {
                             CalculationRow("تخفیف کسر شده:", "- ${viewModel.formatCurrency(viewModel.draftDiscountInput.toDoubleOrNull() ?: 0.0)} تومان", Color.Red)
@@ -3782,8 +4133,26 @@ fun ReportsScreen(
 
         // FINANCIAL REPORT PANEL
         val invoices = viewModel.invoices.collectAsState().value
-        val activeInvoices = invoices.filter { !it.invoice.paymentType.startsWith("CANCELLED") }
-        val totalSales = activeInvoices.sumOf { it.invoice.totalAmount }
+        var selectedTimeRange by remember { mutableStateOf("ALL") } // "TODAY", "WEEK", "MONTH", "ALL"
+        val now = System.currentTimeMillis()
+        val startOfToday = com.example.data.repository.BusinessDayUtils.getStartOfDay(now)
+        val sevenDaysAgo = now - 7L * 24 * 60 * 60 * 1000
+        val thirtyDaysAgo = now - 30L * 24 * 60 * 60 * 1000
+
+        val rangeFilteredInvoices = when (selectedTimeRange) {
+            "TODAY" -> invoices.filter { it.invoice.date >= startOfToday }
+            "WEEK" -> invoices.filter { it.invoice.date >= sevenDaysAgo }
+            "MONTH" -> invoices.filter { it.invoice.date >= thirtyDaysAgo }
+            else -> invoices
+        }
+        val activeRangeInvoices = rangeFilteredInvoices.filter { !it.invoice.paymentType.startsWith("CANCELLED") }
+        val rangeSales = activeRangeInvoices.sumOf { it.invoice.totalAmount }
+        val rangeProfit = rangeSales.multiply(BigDecimal("0.07")).setScale(0, java.math.RoundingMode.HALF_UP)
+        val rangeSoldGoldWeight = activeRangeInvoices.sumOf { inv ->
+            inv.items.sumOf { item ->
+                (item.customWeight ?: BigDecimal.ZERO).toDouble() * item.quantity
+            }
+        }
         val completedInstPayments = viewModel.installments.collectAsState().value.filter { it.paid }.sumOf { it.amount }
         var invoiceToCancel by remember { mutableStateOf<InvoiceWithDetails?>(null) }
         
@@ -3791,6 +4160,43 @@ fun ReportsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()
         ) {
+            // Time Range Filter Row
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SmokyCard)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "ALL" to "همه سوابق",
+                        "MONTH" to "۳۰ روز اخیر",
+                        "WEEK" to "۷ روز اخیر",
+                        "TODAY" to "امروز"
+                    ).forEach { (rangeKey, label) ->
+                        val selected = selectedTimeRange == rangeKey
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) MetallicGold else Color.Transparent)
+                                .clickable { selectedTimeRange = rangeKey }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                label,
+                                color = if (selected) DarkObsidian else TextWhite,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -3798,12 +4204,18 @@ fun ReportsScreen(
                     border = BorderStroke(1.dp, CharcoalBorder)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("خلاصه وضعیت عملکردی کل سیستم", color = MetallicGold, fontWeight = FontWeight.Bold)
-                        CalculationRow("تعداد کل فاکتورهای صادر شده:", "${invoices.size} مورد")
-                        CalculationRow("جمع ارزش فروش کالاها:", "${viewModel.formatCurrency(totalSales)} تومان", MetallicGold)
+                        val rangeLabel = when (selectedTimeRange) {
+                            "TODAY" -> "امروز"
+                            "WEEK" -> "۷ روز اخیر"
+                            "MONTH" -> "۳۰ روز اخیر"
+                            else -> "کل دوره‌ها"
+                        }
+                        Text("خلاصه وضعیت عملکرد مالی ($rangeLabel)", color = MetallicGold, fontWeight = FontWeight.Bold)
+                        CalculationRow("تعداد فاکتورها در این بازه:", "${rangeFilteredInvoices.size} مورد")
+                        CalculationRow("جمع ارزش فروش کالاها:", "${viewModel.formatCurrency(rangeSales)} تومان", MetallicGold)
+                        CalculationRow("سود قانونی برآورد شده (۷٪):", "${viewModel.formatCurrency(rangeProfit)} تومان", com.example.ui.theme.StatusGreen)
+                        CalculationRow("مجموع طلای فروخته‌شده:", "${viewModel.formatWeight(rangeSoldGoldWeight)} گرم", MetallicGold)
                         CalculationRow("مجموع وصولی اقساط بازار:", "${viewModel.formatCurrency(completedInstPayments)} تومان")
-                        
-                        // PDF print export option removed as requested
                     }
                 }
             }

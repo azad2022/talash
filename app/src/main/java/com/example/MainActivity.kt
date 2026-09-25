@@ -384,6 +384,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
             containerColor = Color.Transparent
         ) { paddingValues ->
             val menuItems = listOf(
+                Triple("ماشین حساب زرگری", Icons.Filled.Calculate, "calculator"),
                 Triple("بستن روز طلافروشی", Icons.Filled.LockClock, "daily_closing"),
                 Triple("انبارگردانی با بارکد", Icons.Filled.QrCodeScanner, "stock_take"),
                 Triple("پشتیبان‌گیری و بازیابی", Icons.Filled.Backup, "backup_restore"),
@@ -431,6 +432,10 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
                         onNavigateToTab = { activeTab = it }
                     )
                     "customers" -> CustomersScreen(viewModel = viewModel)
+                    "calculator" -> CalculatorScreen(
+                        viewModel = viewModel,
+                        onNavigateToTab = { activeTab = it }
+                    )
                     "daily_closing" -> com.example.ui.screens.closing.DailyClosingScreen(
                         viewModel = viewModel,
                         onBack = { activeTab = "home" }
@@ -583,7 +588,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Item 1: More (بیشتر)
-            val isMoreActive = isFloatingMenuExpanded || activeTab in listOf("daily_closing", "stock_take", "backup_restore", "hardware_center", "repairs", "reports", "audit_logs", "settings", "help")
+            val isMoreActive = isFloatingMenuExpanded || activeTab in listOf("calculator", "daily_closing", "stock_take", "backup_restore", "hardware_center", "repairs", "reports", "audit_logs", "settings", "help")
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,

@@ -285,7 +285,11 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     }
 
     // --- CALCULATOR LIVE STATE (Persian Style) ---
+    var calcMode by mutableStateOf("SALE") // "SALE" (فروش طلای نو) or "PURCHASE_USED" (خرید طلای مستعمل از مشتری)
+    var calcScrapPurityRate by mutableStateOf("740") // 750 (کامل ۱۸), 740 (عرف بازار), 735 (فرسوده)
+    var calcMazaneh by mutableStateOf("0") // Mazaneh: price of 1 Mesghal (4.608g) of 17k (705) gold
     var calcWeight by mutableStateOf("1.0")
+    var calcStoneWeight by mutableStateOf("0") // Stone / gem weight deduction in grams
     var calcKarat by mutableStateOf(18)
     var calcGoldPriceToday by mutableStateOf("0") // Raw string to manage in Tomans
     var calcWageValue by mutableStateOf("10") // Per gram or percent
@@ -293,15 +297,34 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     var calcDiscount by mutableStateOf("0")
     var calcTaxRate by mutableStateOf("9")
 
+    fun updateGoldPriceTodayFromGram(gramPriceStr: String) {
+        calcGoldPriceToday = gramPriceStr
+        val g = gramPriceStr.toDoubleOrNull() ?: 0.0
+        calcMazaneh = if (g > 0) (g * 4.3318).toLong().toString() else "0"
+    }
+
+    fun updateGoldPriceTodayFromMazaneh(mazanehStr: String) {
+        calcMazaneh = mazanehStr
+        val m = mazanehStr.toDoubleOrNull() ?: 0.0
+        calcGoldPriceToday = if (m > 0) (m / 4.3318).toLong().toString() else "0"
+    }
+
+    val calcNetWeight: Double
+        get() {
+            val gross = calcWeight.toDoubleOrNull() ?: 0.0
+            val stone = calcStoneWeight.toDoubleOrNull() ?: 0.0
+            return (gross - stone).coerceAtLeast(0.0)
+        }
+
     // Derived values computed in real-time with standard precision via CalculateGoldPriceUseCase
     val calcResult: com.example.domain.usecase.GoldCalculationResult
         get() {
-            val w = calcWeight.toDoubleOrNull() ?: 0.0
+            val netW = calcNetWeight
             val p = calcGoldPriceToday.toDoubleOrNull() ?: 0.0
             val wv = calcWageValue.toDoubleOrNull() ?: 0.0
             val taxRateVal = calcTaxRate.toDoubleOrNull() ?: 9.0
             return calculateGoldPriceUseCase.execute(
-                weightGram = w,
+                weightGram = netW,
                 karat = calcKarat,
                 wagePrice = wv,
                 wageType = calcWageType,
@@ -321,6 +344,19 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
             return (calcResult.totalPrice - disc).coerceAtLeast(0.0)
         }
 
+    // Standard Iranian used/scrap gold purchase formula:
+    // Value = Net Weight * 18k Price * (Purity / 750) - Discount
+    // Scrap gold is exempt from wage, dealer profit, and VAT!
+    val calcScrapPurchaseAmount: Double
+        get() {
+            val netW = calcNetWeight
+            val p = calcGoldPriceToday.toDoubleOrNull() ?: 0.0
+            val purity = calcScrapPurityRate.toDoubleOrNull() ?: 740.0
+            val disc = calcDiscount.toDoubleOrNull() ?: 0.0
+            val baseVal = netW * p * (purity / 750.0)
+            return (baseVal - disc).coerceAtLeast(0.0)
+        }
+
     // --- CALCULATOR CONVERSION TO INVOICE CART ---
     fun loadCalculatorPriceToAppConfig() {
         viewModelScope.launch {
@@ -334,10 +370,69 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
         }
     }
 
+    fun addCalculatorResultToInvoiceDraft(onSuccess: (String) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val netW = BigDecimal.valueOf(calcNetWeight).setScale(3, RoundingMode.HALF_UP)
+                if (netW <= BigDecimal.ZERO) {
+                    onError("وزن خالص طلا باید بیشتر از صفر باشد.")
+                    return@launch
+                }
+                val isScrap = calcMode == "PURCHASE_USED"
+                val finalPrice = if (isScrap) calcScrapPurchaseAmount else calcFinalAmount
+                val finalPriceBd = BigDecimal.valueOf(finalPrice).setScale(0, RoundingMode.HALF_UP)
+                if (finalPriceBd <= BigDecimal.ZERO) {
+                    onError("مبلغ محاسبه‌شده نامعتبر است.")
+                    return@launch
+                }
+                val prodName = if (isScrap) {
+                    "طلای مستعمل تعویضی (${formatWeight(netW)} گرم - عیار $calcScrapPurityRate)"
+                } else {
+                    "طلای سفارشی (${formatWeight(netW)} گرم - عیار $calcKarat)"
+                }
+                val category = if (isScrap) "طلای متفرقه و مستعمل" else "طلا"
+                val karatVal = if (isScrap) (if (calcScrapPurityRate == "750") 18 else 17) else calcKarat
+                val wageVal = if (isScrap) 0.0 else (calcWageValue.toDoubleOrNull() ?: 0.0)
+                val wageTypeVal = if (isScrap) "FIXED" else calcWageType
+
+                val newProduct = Product(
+                    name = prodName,
+                    category = category,
+                    weightGram = netW,
+                    karat = karatVal,
+                    wagePrice = BigDecimal.valueOf(wageVal),
+                    wageType = wageTypeVal,
+                    stock = 1,
+                    minStock = 0,
+                    purchasePrice = finalPriceBd
+                )
+                val newId = repository.insertProduct(newProduct).toInt()
+                val insertedProduct = newProduct.copy(id = newId)
+
+                draftItems.add(
+                    InvoiceItemDraft(
+                        product = insertedProduct,
+                        qty = 1,
+                        customGramPrice = if (netW > BigDecimal.ZERO) finalPriceBd.divide(netW, 0, RoundingMode.HALF_UP).toDouble() else finalPrice,
+                        exactSalePrice = finalPriceBd.toDouble(),
+                        customWeight = netW
+                    )
+                )
+                onSuccess("قلم با موفقیت به پیش‌نویس فاکتور اضافه شد.")
+            } catch (e: Exception) {
+                onError(e.message ?: "خطا در افزودن به پیش‌نویس فاکتور")
+            }
+        }
+    }
+
     fun updateGoldPrice(newPrice: Double) {
         viewModelScope.launch {
             val user = repository.getOrInitializeUser().copy(dailyGoldPrice = BigDecimal.valueOf(newPrice))
             repository.updateUser(user)
+            if (newPrice > 0) {
+                calcGoldPriceToday = BigDecimal.valueOf(newPrice).toLong().toString()
+                calcMazaneh = (newPrice * 4.3318).toLong().toString()
+            }
         }
     }
 
@@ -756,17 +851,49 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
                 val prepaymentBd = java.math.BigDecimal.valueOf(prepaymentVal).setScale(0, java.math.RoundingMode.HALF_UP)
                 val remainingBalanceBd = finalPayableBd.subtract(prepaymentBd).max(java.math.BigDecimal.ZERO)
 
-                // Back-calculated tax using BigDecimal
-                val taxEst = invoiceCalculatorUseCase.calculateBackTax(
-                    totalAmount = finalPayableBd,
-                    taxPercent = user.taxPercent
+                // Legally accurate Iranian Gold VAT:
+                // Tax (VAT) applies ONLY to (Wage + Profit) of manufactured gold jewelry.
+                // Coins, bullion, raw gold, melted gold, scrap gold, and currencies are fully tax-exempt by law.
+                var totalCalculatedTaxBd = BigDecimal.ZERO
+                val nonTaxableCategories = setOf(
+                    "طلای ۲۴ عیار", "طلای آبشده نقدی", "انس جهانی طلا",
+                    "سکه یک گرمی", "ربع سکه", "نیم سکه", "سکه امامی", "سکه بهار آزادی", "سکه", "شمش",
+                    "طلای متفرقه و مستعمل",
+                    "دلار آمریکا", "دلار تتر", "یورو", "درهم امارات", "پوند انگلیس"
                 )
+
+                draftSnapshot.forEach { draft ->
+                    val prod = draft.product
+                    if (prod.category !in nonTaxableCategories) {
+                        val effWeight = draft.customWeight ?: prod.weightGram
+                        if (effWeight > BigDecimal.ZERO && user.dailyGoldPrice > BigDecimal.ZERO) {
+                            val calcResult = calculateGoldPriceUseCase.execute(
+                                weightGram = effWeight,
+                                karat = prod.karat,
+                                wagePrice = prod.wagePrice,
+                                wageType = prod.wageType,
+                                goldPricePerGram18k = user.dailyGoldPrice,
+                                profitPercent = BigDecimal("7.0"),
+                                taxPercent = user.taxPercent
+                            )
+                            val itemTax = calcResult.taxAmountBd.multiply(BigDecimal.valueOf(draft.qty.toLong()))
+                            totalCalculatedTaxBd = totalCalculatedTaxBd.add(itemTax)
+                        }
+                    }
+                }
+
+                // If invoice has a discount, scale tax proportionally
+                val finalTaxBd = if (subtotalBd > BigDecimal.ZERO && finalPayableBd < subtotalBd) {
+                    totalCalculatedTaxBd.multiply(finalPayableBd).divide(subtotalBd, 0, RoundingMode.HALF_UP)
+                } else {
+                    totalCalculatedTaxBd.setScale(0, RoundingMode.HALF_UP)
+                }
 
                 val saleInvoice = SaleInvoice(
                     customerId = customerId,
                     totalAmount = finalPayableBd,
                     discount = discBd,
-                    tax = taxEst,
+                    tax = finalTaxBd,
                     paidAmount = if (normalizedPaymentType == "CASH") finalPayableBd else prepaymentBd,
                     paymentType = normalizedPaymentType,
                     installmentsCount = instCountVal,

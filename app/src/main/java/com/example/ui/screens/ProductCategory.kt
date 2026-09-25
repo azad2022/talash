@@ -28,6 +28,7 @@ enum class ProductCategory(
     // Dynamic asset categories integrated with online webservice
     GOLD_24K("طلای ۲۴ عیار", Color(0xFFFF9800), Icons.Filled.Layers),
     GOLD_MELTED("طلای آبشده نقدی", Color(0xFFFFC107), Icons.Filled.Layers),
+    SCRAP_GOLD("طلای متفرقه و مستعمل", Color(0xFFD97706), Icons.Filled.Layers),
     COIN_GRAM("سکه یک گرمی", Color(0xFF00bcd4), Icons.Filled.Paid),
     COIN_QUARTER("ربع سکه", Color(0xFF009688), Icons.Filled.Paid),
     COIN_HALF("نیم سکه", Color(0xFF4caf50), Icons.Filled.Paid),
