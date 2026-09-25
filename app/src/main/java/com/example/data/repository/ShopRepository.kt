@@ -32,7 +32,18 @@ class ShopRepository(
     }
 
     fun getGoldPriceApiKey(): String {
-        return prefs.getString("gold_price_api_key", "") ?: ""
+        val saved = prefs.getString("gold_price_api_key", "") ?: ""
+        if (saved.isNotBlank()) return saved
+        return try {
+            val buildConfigKey = com.example.BuildConfig.GOLD_PRICE_API_KEY
+            if (buildConfigKey.isNotBlank() && !buildConfigKey.startsWith("YOUR_") && buildConfigKey != "null") {
+                buildConfigKey
+            } else {
+                ""
+            }
+        } catch (e: Throwable) {
+            ""
+        }
     }
 
     fun setGoldPriceApiKey(key: String) {
@@ -253,6 +264,17 @@ class ShopRepository(
                 throw IllegalStateException("روز کاری جاری ($dateKey) بسته شده است و امکان تغییر در موجودی یا لیست کالاها وجود ندارد. ابتدا باید روز را بازگشایی کنید.")
             }
             val id = shopDao.insertProduct(product)
+            val persistedId = if (product.id == 0) id.toInt() else product.id
+            val activeProducts = shopDao.getAllProductsSync().filter { !it.isDeleted }
+            val canonicalForTarget = BarcodeResolver.getCanonicalBarcode(persistedId, product.customBarcode)
+            val targetProduct = shopDao.getProductById(persistedId)
+                ?: throw IllegalStateException("کالای ذخیره‌شده قابل بازیابی نیست.")
+            val conflicts = BarcodeResolver.findCanonicalBarcodeConflictsForProduct(targetProduct, activeProducts)
+            if (conflicts.isNotEmpty()) {
+                throw IllegalStateException(
+                    "شناسه/بارکد «" + canonicalForTarget + "» با ورودی‌های کالای دیگری تداخل دارد: [" + conflicts.joinToString(", ") + "]. ابتدا آن را یکتا کنید."
+                )
+            }
             val action = if (product.id == 0) "افزودن کالا به انبار: " else "بروزرسانی مشخصات کالا: "
             logAction(if (product.id == 0) "ADD_PRODUCT" else "EDIT_PRODUCT", "$action ${product.name} (${product.weightGram} گرم)")
 
@@ -325,6 +347,8 @@ class ShopRepository(
             }
         }
     }
+
+    suspend fun getAllProductsForReceiptSync(): List<Product> = shopDao.getAllProductsSync()
 
     // --- INVOICES (SALES TRANSACTION) ---
     val invoices: Flow<List<InvoiceWithDetails>> = shopDao.getInvoicesWithDetails()

@@ -13,7 +13,7 @@ android {
   defaultConfig {
     applicationId = "ir.talash.azerakhsh"
     minSdk = 24
-    targetSdk = 34
+    targetSdk = 36
     versionCode = 3
     versionName = "1.0.2"
 

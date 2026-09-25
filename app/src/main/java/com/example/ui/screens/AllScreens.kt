@@ -1395,6 +1395,17 @@ fun WarehouseScreen(
     var selectedProductToBarcodePrint by remember { mutableStateOf<Product?>(null) }
     var isScannerOpen by remember { mutableStateOf(false) }
     var outOfStockProductForDialog by remember { mutableStateOf<Product?>(null) }
+    var hardwareScannerEnabled by remember { mutableStateOf(false) }
+    androidx.compose.runtime.DisposableEffect(hardwareScannerEnabled) {
+        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(hardwareScannerEnabled)
+        onDispose { com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(false) }
+    }
+
+    LaunchedEffect(Unit) {
+        com.example.hardware.barcode.HardwareBarcodeBus.scans.collect { code ->
+            searchQuery = code
+        }
+    }
 
     // Add state variables
     var addName by remember { mutableStateOf("") }
@@ -1514,10 +1525,29 @@ fun WarehouseScreen(
                         ) {
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Filled.Close, contentDescription = "بستن", tint = TextGray, modifier = Modifier.size(14.dp))
+                                    Icon(Icons.Filled.Close, contentDescription = "پاک کردن جستجو", tint = TextGray, modifier = Modifier.size(14.dp))
                                 }
                                 Spacer(Modifier.width(4.dp))
                             }
+
+                            IconButton(
+                                onClick = { hardwareScannerEnabled = !hardwareScannerEnabled },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (hardwareScannerEnabled) StatusGreen.copy(alpha = 0.14f)
+                                        else MetallicGold.copy(alpha = 0.12f)
+                                    )
+                            ) {
+                                Text(
+                                    "HID",
+                                    color = if (hardwareScannerEnabled) StatusGreen else MetallicGold,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
                             IconButton(
                                 onClick = { isScannerOpen = true },
                                 modifier = Modifier
@@ -1527,7 +1557,7 @@ fun WarehouseScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.QrCode,
-                                    contentDescription = "اسکن بارکد",
+                                    contentDescription = "اسکن بارکد با دوربین",
                                     tint = MetallicGold,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -2406,8 +2436,28 @@ fun WarehouseScreen(
                             BarcodeGenerator.generateQRCodeBitmap(barcodeStr, width = 280, height = 280)
                         }
 
+                        var labelDpi by remember { mutableStateOf(203) }
                         var selectedBarcodeTab by remember { mutableStateOf(0) } // 0 = Barcode (CODE_128), 1 = QR Code
 
+                        Text("رزولوشن لیبل", color = TextWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(203, 300).forEach { dpi ->
+                                val selected = labelDpi == dpi
+                                Button(
+                                    onClick = { labelDpi = dpi },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (selected) MetallicGold else SmokyBronze,
+                                        contentColor = if (selected) DarkObsidian else TextWhite
+                                    )
+                                ) {
+                                    Text(dpi.toString() + " DPI", fontSize = 11.sp)
+                                }
+                            }
+                        }
                         TabRow(
                             selectedTabIndex = selectedBarcodeTab,
                             containerColor = Color.Transparent,
@@ -2492,12 +2542,14 @@ fun WarehouseScreen(
                         ) {
                             Button(
                                 onClick = {
-                                    val printMsg = if (userConfig?.selectedPrinterName != null) {
-                                        "برچسب بارکد $barcodeStr با موفقیت به چاپگر ${userConfig?.selectedPrinterName} ارسال شد"
-                                    } else {
-                                        "برچسب بارکد تولید شد. چاپگر متصل نیست. لطفاً در بخش تنظیمات چاپگر حرارتی را تنظیم کنید"
+                                    viewModel.printProductLabelToHardware(product, dpi = labelDpi) { result ->
+                                        when (result) {
+                                            is com.example.hardware.core.HardwareResult.Success ->
+                                                Toast.makeText(context, "اتیکت به چاپگر ارسال شد.", Toast.LENGTH_SHORT).show()
+                                            is com.example.hardware.core.HardwareResult.Failure ->
+                                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                        }
                                     }
-                                    Toast.makeText(context, printMsg, Toast.LENGTH_LONG).show()
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
                                 shape = RoundedCornerShape(8.dp),
@@ -2505,7 +2557,7 @@ fun WarehouseScreen(
                             ) {
                                 Icon(Icons.Filled.Print, contentDescription = null, tint = DarkObsidian, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("چاپ مستقیم برچسب", color = DarkObsidian, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("ارسال به لیبل‌پرینتر", color = DarkObsidian, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
 
                             Button(
@@ -2544,6 +2596,25 @@ fun InvoiceScreen(
     var weightedItemCategory by remember { mutableStateOf("انگشتر") }
     var weightedItemWeight by remember { mutableStateOf("") }
     var isInvoiceScannerOpen by remember { mutableStateOf(false) }
+    var hardwareScannerEnabled by remember { mutableStateOf(false) }
+    val hardwareStableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
+
+    androidx.compose.runtime.DisposableEffect(hardwareScannerEnabled) {
+        com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(hardwareScannerEnabled)
+        onDispose { com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(false) }
+    }
+
+    LaunchedEffect(productsList) {
+        com.example.hardware.barcode.HardwareBarcodeBus.scans.collect { code ->
+            when (val resolved = com.example.domain.util.BarcodeResolver.resolveProductExact(code, productsList)) {
+                is com.example.domain.util.ProductResolution.Single -> viewModel.addItemToDraft(resolved.product)
+                is com.example.domain.util.ProductResolution.Ambiguous ->
+                    Toast.makeText(context, "این بارکد برای چند کالا مشترک است و فروش متوقف شد.", Toast.LENGTH_LONG).show()
+                com.example.domain.util.ProductResolution.NotFound ->
+                    Toast.makeText(context, "کالایی با این بارکد پیدا نشد.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // State Variables for Checkout Drawer
     var isCustomerSelectorExpand by remember { mutableStateOf(false) }
@@ -2635,26 +2706,99 @@ fun InvoiceScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.35f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("اتصال ترازو و وزن سریع", color = MetallicGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = weightedItemWeight,
+                        onValueChange = { weightedItemWeight = it },
+                        label = { Text("وزن (گرم)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                val stable = hardwareStableWeight
+                                val onlyItem = cartItems.singleOrNull()
+                                if (stable == null) {
+                                    Toast.makeText(context, "هنوز وزن پایدار دریافت نشده است.", Toast.LENGTH_SHORT).show()
+                                } else if (onlyItem == null) {
+                                    Toast.makeText(context, "برای ثبت وزن مستقیم، سبد باید دقیقاً یک قلم داشته باشد.", Toast.LENGTH_SHORT).show()
+                                } else if (onlyItem.qty != 1) {
+                                    Toast.makeText(context, "برای وزن‌کشی مستقیم، تعداد این قلم باید دقیقاً ۱ باشد.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
+                                    viewModel.applyStableWeightToDraft(onlyItem.product.id, stable.grams)
+                                    Toast.makeText(context, "وزن پایدار برای قلم ثبت و قیمت با وزن جدید بازمحاسبه شد.", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("ثبت در قلم فاکتور", fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                val stable = hardwareStableWeight
+                                if (stable != null) {
+                                    weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
+                                } else {
+                                    Toast.makeText(context, "هنوز وزن پایدار از ترازو دریافت نشده است.", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("ثبت وزن پایدار", fontSize = 11.sp)
+                        }
+                        Text(
+                            hardwareStableWeight?.grams?.stripTrailingZeros()?.toPlainString()?.plus(" گرم ✓") ?: "ترازو متصل نیست/وزن پایدار ندارد",
+                            color = if (hardwareStableWeight != null) StatusGreen else TextGray,
+                            fontSize = 10.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+
             if (isInvoiceScannerOpen) {
                 com.example.ui.components.BarcodeScannerDialog(
                     onDismissRequest = { isInvoiceScannerOpen = false },
                     onBarcodeScanned = { code ->
-                        val matched = productsList.find { prod ->
-                            val derivedBarcode = "G-${prod.id.toString().padStart(6, '0')}"
-                            derivedBarcode.equals(code, ignoreCase = true) || 
-                            prod.customBarcode.equals(code, ignoreCase = true)
-                        }
-                        if (matched != null) {
-                            if (matched.stock > 0) {
-                                viewModel.addItemToDraft(matched, 1)
-                                Toast.makeText(context, "کالای ${matched.name} به فاکتور اضافه شد", Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(context, "کالای ${matched.name} موجودی انبار ندارد!", Toast.LENGTH_LONG).show()
+                        when (val resolved = com.example.domain.util.BarcodeResolver.resolveProductExact(code, productsList)) {
+                            is com.example.domain.util.ProductResolution.Single -> {
+                                val product = resolved.product
+                                if (product.stock > 0) {
+                                    viewModel.addItemToDraft(product, 1)
+                                    Toast.makeText(context, "کالای ${product.name} به فاکتور اضافه شد", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "کالای ${product.name} موجودی انبار ندارد!", Toast.LENGTH_LONG).show()
+                                }
                             }
-                        } else {
-                            Toast.makeText(context, "کالایی با بارکد $code در انبار یافت نشد!", Toast.LENGTH_LONG).show()
+                            is com.example.domain.util.ProductResolution.Ambiguous -> {
+                                Toast.makeText(context, "این بارکد برای چند کالا مشترک است؛ فروش متوقف شد.", Toast.LENGTH_LONG).show()
+                            }
+                            com.example.domain.util.ProductResolution.NotFound -> {
+                                Toast.makeText(context, "کالایی با بارکد $code در انبار یافت نشد!", Toast.LENGTH_LONG).show()
+                            }
                         }
                         isInvoiceScannerOpen = false
+                  
                     }
                 )
             }
@@ -2665,28 +2809,58 @@ fun InvoiceScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text("صندوق ثبت فاکتور لوکس فروشگاهی", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-                    Text("صورت حساب رسمی، تخفیف، انتخاب نوع تسویه نقدی و اقساطی", style = MaterialTheme.typography.bodySmall, color = TextGray)
-                }
-                
-                IconButton(
-                    onClick = { isInvoiceScannerOpen = true },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MetallicGold.copy(0.12f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.QrCode,
-                        contentDescription = "اسکن بارکد کالا برای ثبت فاکتور سریع",
-                        tint = MetallicGold,
-                        modifier = Modifier.size(22.dp)
+                    Text(
+                        "صندوق ثبت فاکتور لوکس فروشگاهی",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MetallicGold,
+                        fontWeight = FontWeight.Bold
                     )
+                    Text(
+                        "صورت حساب رسمی، تخفیف، انتخاب نوع تسویه نقدی و اقساطی",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextGray
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { hardwareScannerEnabled = !hardwareScannerEnabled },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (hardwareScannerEnabled) StatusGreen.copy(alpha = 0.14f)
+                                else SmokyBronze
+                            )
+                    ) {
+                        Text(
+                            "HID",
+                            color = if (hardwareScannerEnabled) StatusGreen else TextGray,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { isInvoiceScannerOpen = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MetallicGold.copy(0.12f))
+                    ) {
+                        Icon(
+                            Icons.Filled.QrCode,
+                            contentDescription = "اسکن با دوربین",
+                            tint = MetallicGold,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
-
-
 
         // A. Customer Selector Card
         item {
@@ -2891,32 +3065,34 @@ fun InvoiceScreen(
                         // Final Invoice registration Trigger
                         Button(
                             onClick = {
-                                if (viewModel.draftCustomer == null) {
-                                    Toast.makeText(context, "لطفاً ابتدا خریدار را مشخص کنید", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    val success = viewModel.submitCurrentDraftInvoice(
-                                        onError = { errorMsg ->
-                                            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-                                        },
-                                        onSuccess = { newInvoiceId ->
-                                            if (newInvoiceId > 0) {
-                                                Toast.makeText(context, "فاکتور با موفقیت صادر شد", Toast.LENGTH_SHORT).show()
-                                                viewModel.showInvoiceReceiptSimulationById(context, newInvoiceId)
-                                                onNavigateToTab?.invoke("reports")
-                                            } else {
-                                                Toast.makeText(context, "خطا در ثبت فاکتور", Toast.LENGTH_SHORT).show()
-                                            }
+                                val success = viewModel.submitCurrentDraftInvoice(
+                                    onError = { errorMsg ->
+                                        Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                    },
+                                    onSuccess = { newInvoiceId ->
+                                        if (newInvoiceId > 0) {
+                                            Toast.makeText(context, "فاکتور با موفقیت صادر شد", Toast.LENGTH_SHORT).show()
+                                            viewModel.showInvoiceReceiptSimulationById(context, newInvoiceId)
+                                            onNavigateToTab?.invoke("reports")
+                                        } else {
+                                            Toast.makeText(context, "خطا در ثبت فاکتور", Toast.LENGTH_SHORT).show()
                                         }
-                                    )
-                                    if (!success) {
-                                        Toast.makeText(context, "خطا در پردازش اطلاعات فاکتور", Toast.LENGTH_SHORT).show()
                                     }
+                                )
+                                if (!success) {
+                                    Toast.makeText(context, "سبد فاکتور خالی است.", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
+                            enabled = !viewModel.isInvoiceSubmissionInProgress,
                             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("finalize_invoice_button")
                         ) {
-                            Text("ثبت قطعی و صدور سند فاکتور", color = DarkObsidian, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                if (viewModel.isInvoiceSubmissionInProgress) "در حال ثبت فاکتور..." else "ثبت قطعی و صدور سند فاکتور",
+                                color = DarkObsidian,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
                         }
                     }
                 }
@@ -3639,6 +3815,7 @@ fun ReportsScreen(
                 var footerInput by remember { mutableStateOf(prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم.") }
                 var addressInput by remember { mutableStateOf(prefs.getString("receipt_address", "آدرس: گالری اصلی طلا، تهران") ?: "آدرس: گالری اصلی طلا، تهران") }
                 
+                                var paperWidthMm by remember { mutableStateOf(prefs.getInt("receipt_paper_mm", 80)) }
                 var isExpanded by remember { mutableStateOf(false) }
 
                 Card(
@@ -3729,6 +3906,26 @@ fun ReportsScreen(
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                             )
 
+                            Text("عرض رول فیش", color = TextWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(58 to "۵۸ میلی‌متر", 80 to "۸۰ میلی‌متر").forEach { (mm, label) ->
+                                    val selected = paperWidthMm == mm
+                                    Button(
+                                        onClick = { paperWidthMm = mm },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (selected) MetallicGold else SmokyBronze,
+                                            contentColor = if (selected) DarkObsidian else TextWhite
+                                        )
+                                    ) {
+                                        Text(label, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
                             // Live preview title
                             Text("پیش‌نمایش زنده رسید حرارتی چاپی:", color = TextWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
 
@@ -3776,6 +3973,7 @@ fun ReportsScreen(
                                         .putString("receipt_title", titleInput)
                                         .putString("receipt_footer", footerInput)
                                         .putString("receipt_address", addressInput)
+                                        .putInt("receipt_paper_mm", paperWidthMm)
                                         .apply()
                                     Toast.makeText(context, "طراحی رسید اختصاصی شما با موفقیت ذخیره شد", Toast.LENGTH_SHORT).show()
                                     isExpanded = false
@@ -4387,11 +4585,11 @@ $textPayload
 
 @Composable
 fun PrinterReceiptSimulatorDialog(
+    viewModel: ShopViewModel,
     payloadText: String,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var editedPayload by remember { mutableStateOf(payloadText) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -4415,13 +4613,13 @@ fun PrinterReceiptSimulatorDialog(
                 ) {
                     Column {
                         Text(
-                            "رسید کاغذی هوشمند (با قابلیت ویرایش لمسی)",
+                            "پیش‌نمایش نهایی رسید",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.DarkGray
                         )
                         Text(
-                            "روی هر بخش از رسید کلیک کنید تا متن آن را تغییر دهید",
+                            "مقادیر مالی و مشخصات سند دقیقاً مطابق فاکتور ثبت‌شده چاپ می‌شوند",
                             fontSize = 8.sp,
                             color = Color.Gray
                         )
@@ -4433,35 +4631,27 @@ fun PrinterReceiptSimulatorDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Scroll paper body with editable styled monospaced text field
+                // Immutable receipt preview: financial fields must match the saved invoice exactly.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .background(Color.White)
                         .border(1.dp, Color.LightGray)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp)
                 ) {
-                    TextField(
-                        value = editedPayload,
-                        onValueChange = { editedPayload = it },
-                        textStyle = androidx.compose.ui.text.TextStyle(
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = payloadText,
                             fontFamily = com.example.ui.theme.VazirmatnFontFamily,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
                             color = Color.Black,
                             textAlign = TextAlign.Right
-                        ),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.White,
-                            unfocusedContainerColor = Color.White,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent
-                        ),
-                        modifier = Modifier.fillMaxSize()
-                    )
+                        )
+                    }
                 }
-
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Action buttons: 1. Real Print, 2. Mimic cut & dismiss
@@ -4470,14 +4660,26 @@ fun PrinterReceiptSimulatorDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { printReceipt(context, editedPayload) },
+                        onClick = {
+                            viewModel.printReceiptRasterToHardware(payloadText, viewModel.receiptPaperDots(context)) { result ->
+                                when (result) {
+                                    is com.example.hardware.core.HardwareResult.Success -> {
+                                        Toast.makeText(context, "ارسال رسید به چاپگر با موفقیت انجام شد.", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    }
+                                    is com.example.hardware.core.HardwareResult.Failure -> {
+                                        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(Icons.Filled.Print, contentDescription = "چاپ واقعی", tint = DarkObsidian, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.Print, contentDescription = "ارسال به چاپگر حرارتی", tint = DarkObsidian, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("پرینت واقعی فاکتور", color = DarkObsidian, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("ارسال به فیش‌پرینتر", color = DarkObsidian, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Button(

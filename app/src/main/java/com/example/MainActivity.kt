@@ -45,6 +45,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.example.ui.screens.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.ShopViewModel
+import com.example.hardware.barcode.HardwareBarcodeBus
+import com.example.ui.screens.hardware.HardwareCenterScreen
 import kotlinx.coroutines.launch
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -56,18 +58,23 @@ import kotlinx.coroutines.delay
 
 // Manual MVVM ViewModel Factory representing Clean Architecture
 class ShopViewModelFactory(
-    private val repository: com.example.data.repository.ShopRepository
+    private val repository: com.example.data.repository.ShopRepository,
+    private val appContext: android.content.Context
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ShopViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return ShopViewModel(repository) as T
+            return ShopViewModel(repository, appContext) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
 
 class MainActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        return if (HardwareBarcodeBus.onKeyEvent(event)) true else super.dispatchKeyEvent(event)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -86,7 +93,7 @@ class MainActivity : ComponentActivity() {
 
                 // Fetch the manual dependency container lazy singletons
                 val app = LocalContext.current.applicationContext as GildarApp
-                val factory = remember { ShopViewModelFactory(app.repository) }
+                val factory = remember { ShopViewModelFactory(app.repository, app.applicationContext) }
                 val mainViewModel: ShopViewModel = viewModel(factory = factory)
 
                 val authenticated by mainViewModel.isAuthenticated.collectAsState()
@@ -380,7 +387,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
                 Triple("بستن روز طلافروشی", Icons.Filled.LockClock, "daily_closing"),
                 Triple("انبارگردانی با بارکد", Icons.Filled.QrCodeScanner, "stock_take"),
                 Triple("پشتیبان‌گیری و بازیابی", Icons.Filled.Backup, "backup_restore"),
-                Triple("خرید پلاگین", Icons.Filled.Extension, "plugins"),
+                Triple("تجهیزات و اتصال سریع", Icons.Filled.Extension, "hardware_center"),
                 Triple("سفارش تعمیر", Icons.Filled.Handyman, "repairs"),
                 Triple("گزارش مالی", Icons.Filled.Assessment, "reports"),
                 Triple("گزارشات برنامه", Icons.Filled.Visibility, "audit_logs"),
@@ -436,7 +443,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
                         viewModel = viewModel,
                         onBack = { activeTab = "home" }
                     )
-                    "plugins" -> PluginStoreScreen(viewModel = viewModel)
+                    "hardware_center" -> HardwareCenterScreen(viewModel = viewModel, onBack = { activeTab = "home" })
                     "repairs" -> RepairsScreen(viewModel = viewModel)
                     "reports" -> ReportsScreen(viewModel = viewModel)
                     "audit_logs" -> AuditLogsScreen(viewModel = viewModel)
@@ -576,7 +583,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Item 1: More (بیشتر)
-            val isMoreActive = isFloatingMenuExpanded || activeTab in listOf("daily_closing", "stock_take", "backup_restore", "plugins", "repairs", "reports", "audit_logs", "settings", "help")
+            val isMoreActive = isFloatingMenuExpanded || activeTab in listOf("daily_closing", "stock_take", "backup_restore", "hardware_center", "repairs", "reports", "audit_logs", "settings", "help")
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -794,6 +801,7 @@ fun MainAppContainerShell(viewModel: ShopViewModel) {
     // PRINT BILL SIMULATOR DIALOG OVERLAY
     if (viewModel.isShowingPrinterReceiptSimulation && viewModel.activePrintJobPayload != null) {
         PrinterReceiptSimulatorDialog(
+            viewModel = viewModel,
             payloadText = viewModel.activePrintJobPayload ?: "",
             onDismiss = {
                 viewModel.isShowingPrinterReceiptSimulation = false

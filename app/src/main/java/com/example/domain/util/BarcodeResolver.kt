@@ -39,17 +39,41 @@ object BarcodeResolver {
      * Returns a map of collision barcode -> list of conflicting products.
      */
     fun findCanonicalBarcodeCollisions(products: List<Product>): Map<String, List<Product>> {
-        val active = products.filter { !it.isDeleted }
-        return active.groupBy { getCanonicalBarcode(it).trim().lowercase() }
-            .filter { it.value.size > 1 }
+        val aliases = mutableMapOf<String, MutableMap<Int, Product>>()
+        products.filter { !it.isDeleted }.forEach { product ->
+            barcodeAliases(product).forEach { alias ->
+                aliases.getOrPut(alias) { mutableMapOf() }[product.id] = product
+            }
+        }
+        return aliases.mapValues { it.value.values.toList() }.filterValues { it.size > 1 }
     }
 
-    /**
-     * Finds canonical barcode collisions among StockTakeItems in a session.
-     */
+    fun findCanonicalBarcodeConflictsForProduct(product: Product, products: List<Product>): Set<String> =
+        products.filter { !it.isDeleted && it.id != product.id }
+            .flatMap { other -> barcodeAliases(other).filter { alias -> alias in barcodeAliases(product) } }
+            .toSet()
+
     fun findCanonicalBarcodeCollisionsInItems(items: List<StockTakeItem>): Map<String, List<StockTakeItem>> {
-        return items.groupBy { it.productBarcode.trim().lowercase() }
-            .filter { it.value.size > 1 }
+        val aliases = mutableMapOf<String, MutableMap<Int, StockTakeItem>>()
+        items.forEach { item ->
+            stockTakeItemAliases(item).forEach { alias ->
+                aliases.getOrPut(alias) { mutableMapOf() }[item.productId] = item
+            }
+        }
+        return aliases.mapValues { it.value.values.toList() }.filterValues { it.size > 1 }
+    }
+
+    private fun barcodeAliases(product: Product): Set<String> = buildSet {
+        add(getCanonicalBarcode(product).trim().lowercase())
+        add(product.id.toString())
+        add("g-${product.id.toString().padStart(6, '0')}")
+        product.customBarcode.trim().takeIf { it.isNotBlank() }?.let { add(it.lowercase()) }
+    }
+
+    private fun stockTakeItemAliases(item: StockTakeItem): Set<String> = buildSet {
+        item.productBarcode.trim().takeIf { it.isNotBlank() }?.let { add(it.lowercase()) }
+        add(item.productId.toString())
+        add("g-${item.productId.toString().padStart(6, '0')}")
     }
 
     /**

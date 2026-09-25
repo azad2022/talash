@@ -9,6 +9,8 @@ import android.os.Environment
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import androidx.core.content.res.ResourcesCompat
+import com.example.R
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -18,6 +20,22 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
 import com.example.data.repository.*
+import com.example.hardware.HardwareManager
+import com.example.hardware.PairedBluetoothDevice
+import com.example.hardware.core.HardwareConnectionState
+import com.example.hardware.core.HardwareDeviceType
+import com.example.hardware.core.HardwareResult
+import com.example.hardware.core.SerialConnectionSettings
+import com.example.hardware.print.EscPosEncoder
+import com.example.hardware.print.GoldLabelFormatter
+import com.example.hardware.print.ReceiptFormatter
+import com.example.hardware.print.ReceiptProfile
+import com.example.hardware.print.ReceiptRasterRenderer
+import com.example.hardware.print.GoldLabelZplEncoder
+import com.example.hardware.print.LabelPrinterProtocol
+import com.example.hardware.scale.WeightComparison
+import com.example.hardware.scale.WeightComparisonEngine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -31,7 +49,22 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
-class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
+class ShopViewModel(private val repository: ShopRepository, appContext: Context? = null) : ViewModel() {
+
+    private val applicationContext: Context? = appContext?.applicationContext
+    private val hardwareManager = applicationContext?.let { HardwareManager(it, viewModelScope) }
+    private val defaultHardwareState = MutableStateFlow(HardwareConnectionState.DISCONNECTED)
+    private val defaultStableWeight = MutableStateFlow<com.example.hardware.core.StableWeight?>(null)
+    val hardwareConnectionState: StateFlow<HardwareConnectionState> = hardwareManager?.connectionState ?: defaultHardwareState
+    val hardwareConnectedDevice: StateFlow<com.example.hardware.core.HardwareDevice?> = hardwareManager?.connectedDevice ?: MutableStateFlow(null)
+    val hardwareConnectedDevices: StateFlow<Map<HardwareDeviceType, com.example.hardware.core.HardwareDevice>> =
+        hardwareManager?.hardwareConnectedDevices ?: MutableStateFlow(emptyMap())
+    val hardwareLatestStableWeight: StateFlow<com.example.hardware.core.StableWeight?> = hardwareManager?.latestStableWeight ?: defaultStableWeight
+    val hardwareLastError: StateFlow<String?> = hardwareManager?.lastError ?: MutableStateFlow(null)
+    private val defaultComparison = MutableStateFlow<WeightComparison?>(null)
+    var lastWeightComparison: WeightComparison? by mutableStateOf(null)
+        private set
+
 
     // --- SECURITY & PIN AUTHFLOW ---
     var pinError by mutableStateOf(false)
@@ -466,15 +499,19 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     var draftDiscountInput by mutableStateOf("0")
     var draftPrepaymentInput by mutableStateOf("0")
     var draftInstallmentsCountInput by mutableStateOf("3")
+    var isInvoiceSubmissionInProgress by mutableStateOf(false)
+        private set
 
     data class InvoiceItemDraft(
         val product: Product,
         val qty: Int,
-        val customGramPrice: Double, // customized based on daily gold rate + wage calculation
-        val exactSalePrice: Double
+        val customGramPrice: Double,
+        val exactSalePrice: Double,
+        val customWeight: BigDecimal? = null
     )
 
     fun clearInvoiceCart() {
+        if (isInvoiceSubmissionInProgress) return
         draftCustomer = null
         draftItems.clear()
         draftPaymentType = "CASH"
@@ -484,9 +521,10 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     }
 
     fun addItemToDraft(product: Product, quantity: Int = 1) {
+        if (isInvoiceSubmissionInProgress) return
+        if (quantity == 0) return
         viewModelScope.launch {
             val user = repository.getOrInitializeUser()
-            // Estimate price based on daily base price / live category price
             val estimatedPrice = product.calculateAssetValue(
                 dailyPrice18k = user.dailyGoldPrice.toDouble(),
                 rateGold24k = rateGold24k,
@@ -504,20 +542,17 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 rateCurrencyGbp = rateCurrencyGbp,
                 taxRate = user.taxPercent.toDouble()
             )
-            val unitPriceBd = java.math.BigDecimal.valueOf(estimatedPrice).setScale(0, java.math.RoundingMode.HALF_UP)
+            val unitPriceBd = BigDecimal.valueOf(estimatedPrice).setScale(0, RoundingMode.HALF_UP)
             val index = draftItems.indexOfFirst { it.product.id == product.id }
             if (index >= 0) {
                 val current = draftItems[index]
                 val newQty = current.qty + quantity
-                val newTotalBd = unitPriceBd.multiply(java.math.BigDecimal.valueOf(newQty.toLong())).setScale(0, java.math.RoundingMode.HALF_UP)
-                draftItems[index] = current.copy(
-                    qty = newQty,
-                    exactSalePrice = newTotalBd.toDouble()
-                )
+                val newTotalBd = unitPriceBd.multiply(BigDecimal.valueOf(newQty.toLong())).setScale(0, RoundingMode.HALF_UP)
+                draftItems[index] = current.copy(qty = newQty, exactSalePrice = newTotalBd.toDouble())
             } else {
-                val totalBd = unitPriceBd.multiply(java.math.BigDecimal.valueOf(quantity.toLong())).setScale(0, java.math.RoundingMode.HALF_UP)
+                val totalBd = unitPriceBd.multiply(BigDecimal.valueOf(quantity.toLong())).setScale(0, RoundingMode.HALF_UP)
                 val customGramPriceBd = if (product.weightGram > BigDecimal.ZERO) {
-                    unitPriceBd.divide(product.weightGram.setScale(3, java.math.RoundingMode.HALF_UP), 0, java.math.RoundingMode.HALF_UP)
+                    unitPriceBd.divide(product.weightGram.setScale(3, RoundingMode.HALF_UP), 0, RoundingMode.HALF_UP)
                 } else {
                     unitPriceBd
                 }
@@ -526,10 +561,47 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                         product = product,
                         qty = quantity,
                         customGramPrice = customGramPriceBd.toDouble(),
-                        exactSalePrice = totalBd.toDouble()
+                        exactSalePrice = totalBd.toDouble(),
+                        customWeight = null
                     )
                 )
             }
+        }
+    }
+
+    fun applyStableWeightToDraft(productId: Int, measuredWeight: BigDecimal) {
+        if (measuredWeight <= BigDecimal.ZERO) return
+        viewModelScope.launch {
+            val index = draftItems.indexOfFirst { it.product.id == productId }
+            if (index < 0) return@launch
+            val current = draftItems[index]
+            if (current.qty != 1) return@launch
+            val user = repository.getOrInitializeUser()
+            val weightedProduct = current.product.copy(weightGram = measuredWeight)
+            val unitPrice = weightedProduct.calculateAssetValue(
+                dailyPrice18k = user.dailyGoldPrice.toDouble(),
+                rateGold24k = rateGold24k,
+                rateGoldMelted = rateGoldMelted,
+                rateGoldOunce = rateGoldOunce,
+                rateCoin1g = rateCoin1g,
+                rateCoinQuarter = rateCoinQuarter,
+                rateCoinHalf = rateCoinHalf,
+                rateCoinEmami = rateCoinEmami,
+                rateCoinBahar = rateCoinBahar,
+                rateCurrencyUsd = rateCurrencyUsd,
+                rateCurrencyTether = rateCurrencyTether,
+                rateCurrencyEur = rateCurrencyEur,
+                rateCurrencyAed = rateCurrencyAed,
+                rateCurrencyGbp = rateCurrencyGbp,
+                taxRate = user.taxPercent.toDouble()
+            )
+            val unitPriceBd = BigDecimal.valueOf(unitPrice).setScale(0, RoundingMode.HALF_UP)
+            val total = unitPriceBd.multiply(BigDecimal.valueOf(current.qty.toLong())).setScale(0, RoundingMode.HALF_UP)
+            draftItems[index] = current.copy(
+                customGramPrice = if (measuredWeight > BigDecimal.ZERO) unitPriceBd.divide(measuredWeight, 0, RoundingMode.HALF_UP).toDouble() else current.customGramPrice,
+                exactSalePrice = total.toDouble(),
+                customWeight = measuredWeight
+            )
         }
     }
 
@@ -553,19 +625,112 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         onError: ((String) -> Unit)? = null,
         onSuccess: (Int) -> Unit
     ): Boolean {
-        val cust = draftCustomer ?: return false
+        if (isInvoiceSubmissionInProgress) {
+            onError?.invoke("ثبت فاکتور دیگری در حال انجام است.")
+            return false
+        }
         if (draftItems.isEmpty()) return false
+        val draftSnapshot = draftItems.toList()
+        val customerId = draftCustomer?.id ?: 0
 
-        val discVal = draftDiscountInput.toDoubleOrNull() ?: 0.0
-        val prepaymentVal = draftPrepaymentInput.toDoubleOrNull() ?: 0.0
-        val instCountVal = draftInstallmentsCountInput.toIntOrNull() ?: 0
+        val discountText = draftDiscountInput.trim()
+        val prepaymentText = draftPrepaymentInput.trim()
+        val installmentsText = draftInstallmentsCountInput.trim()
 
+        val discVal = when {
+            discountText.isEmpty() -> 0.0
+            else -> discountText.toDoubleOrNull() ?: run {
+                onError?.invoke("مبلغ تخفیف نامعتبر است.")
+                return false
+            }
+        }
+        val prepaymentVal = when {
+            prepaymentText.isEmpty() -> 0.0
+            else -> prepaymentText.toDoubleOrNull() ?: run {
+                onError?.invoke("مبلغ پیش‌پرداخت نامعتبر است.")
+                return false
+            }
+        }
+        val instCountVal = when {
+            installmentsText.isEmpty() -> 0
+            else -> installmentsText.toIntOrNull() ?: run {
+                onError?.invoke("تعداد اقساط نامعتبر است.")
+                return false
+            }
+        }
+
+        if (!discVal.isFinite() || !prepaymentVal.isFinite()) {
+            onError?.invoke("مبالغ فاکتور باید عددی معتبر و محدود باشند.")
+            return false
+        }
+
+        val normalizedPaymentType = draftPaymentType.uppercase()
+        if (normalizedPaymentType != "CASH" && normalizedPaymentType != "INSTALLMENT") {
+            onError?.invoke("نوع تسویه فاکتور نامعتبر است.")
+            return false
+        }
+        if (draftSnapshot.any { it.qty <= 0 }) {
+            onError?.invoke("تعداد هیچ قلمی از فاکتور نمی‌تواند صفر یا منفی باشد.")
+            return false
+        }
+        if (discVal < 0.0) {
+            onError?.invoke("مبلغ تخفیف نمی‌تواند منفی باشد.")
+            return false
+        }
+        if (prepaymentVal < 0.0) {
+            onError?.invoke("مبلغ پیش‌پرداخت نمی‌تواند منفی باشد.")
+            return false
+        }
+        val requestedSubtotalBd = draftSnapshot.fold(BigDecimal.ZERO) { acc, item ->
+            acc.add(BigDecimal.valueOf(item.exactSalePrice).setScale(0, RoundingMode.HALF_UP))
+        }
+        val requestedDiscountBd = BigDecimal.valueOf(discVal).setScale(0, RoundingMode.HALF_UP)
+        val requestedFinalBd = requestedSubtotalBd.subtract(requestedDiscountBd).max(BigDecimal.ZERO)
+        if (requestedSubtotalBd <= BigDecimal.ZERO) {
+            onError?.invoke("مبلغ فاکتور باید بیشتر از صفر باشد.")
+            return false
+        }
+        if (requestedDiscountBd > requestedSubtotalBd) {
+            onError?.invoke("تخفیف نمی‌تواند از مبلغ اقلام بیشتر باشد.")
+            return false
+        }
+
+        val requestedPrepaymentBd = BigDecimal.valueOf(prepaymentVal).setScale(0, RoundingMode.HALF_UP)
+        if (requestedPrepaymentBd > requestedFinalBd) {
+            onError?.invoke("پیش‌پرداخت نمی‌تواند از مبلغ نهایی فاکتور بیشتر باشد.")
+            return false
+        }
+        if (normalizedPaymentType == "INSTALLMENT" && requestedPrepaymentBd < requestedFinalBd && instCountVal <= 0) {
+            onError?.invoke("برای مبلغ باقی‌مانده باید حداقل یک قسط تعیین شود.")
+            return false
+        }
+        if (normalizedPaymentType == "CASH" && requestedPrepaymentBd != BigDecimal.ZERO) {
+            onError?.invoke("در تسویه نقدی نباید پیش‌پرداخت جداگانه ثبت شود.")
+            return false
+        }
+        if (normalizedPaymentType == "CASH") {
+            if (instCountVal != 0) {
+                onError?.invoke("در تسویه نقدی تعداد اقساط باید صفر باشد.")
+                return false
+            }
+        }
+
+        if (
+            normalizedPaymentType == "INSTALLMENT" &&
+            requestedPrepaymentBd == requestedFinalBd &&
+            requestedFinalBd > BigDecimal.ZERO
+        ) {
+            onError?.invoke("وقتی کل مبلغ تسویه شده است، نوع تسویه باید نقدی باشد.")
+            return false
+        }
+
+        isInvoiceSubmissionInProgress = true
         viewModelScope.launch {
             try {
                 val user = repository.getOrInitializeUser()
 
                 // Convert drafts to SaleItem deterministically
-                val itemsToSave = draftItems.map { draft ->
+                val itemsToSave = draftSnapshot.map { draft ->
                     val draftTotalBd = java.math.BigDecimal.valueOf(draft.exactSalePrice).setScale(0, java.math.RoundingMode.HALF_UP)
                     val qtyBd = java.math.BigDecimal.valueOf(draft.qty.toLong())
                     val unitPriceBd = draftTotalBd.divide(qtyBd, 0, java.math.RoundingMode.HALF_UP)
@@ -575,8 +740,9 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                         quantity = draft.qty,
                         unitPrice = unitPriceBd,
                         total = draftTotalBd,
-                        customWeight = draft.product.weightGram,
-                        customName = draft.product.name
+                        customWeight = draft.customWeight ?: draft.product.weightGram,
+                        customName = draft.product.name,
+                        customKarat = draft.product.karat
                     )
                 }
 
@@ -597,19 +763,19 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 )
 
                 val saleInvoice = SaleInvoice(
-                    customerId = cust.id,
+                    customerId = customerId,
                     totalAmount = finalPayableBd,
                     discount = discBd,
                     tax = taxEst,
-                    paidAmount = if (draftPaymentType == "CASH") finalPayableBd else prepaymentBd,
-                    paymentType = draftPaymentType,
+                    paidAmount = if (normalizedPaymentType == "CASH") finalPayableBd else prepaymentBd,
+                    paymentType = normalizedPaymentType,
                     installmentsCount = instCountVal,
                     prepayment = prepaymentBd
                 )
 
                 // Create installments with exact remainder distribution
                 val installmentsList = mutableListOf<Installment>()
-                if (draftPaymentType == "INSTALLMENT" && instCountVal > 0) {
+                if (normalizedPaymentType == "INSTALLMENT" && instCountVal > 0) {
                     val installmentAmounts = invoiceCalculatorUseCase.calculateInstallments(
                         remainingAmount = remainingBalanceBd,
                         installmentsCount = instCountVal
@@ -638,6 +804,8 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
                 onSuccess(generatedInvoiceId)
             } catch (e: Exception) {
                 onError?.invoke(e.localizedMessage ?: e.message ?: "خطا در ثبت فاکتور")
+            } finally {
+                isInvoiceSubmissionInProgress = false
             }
         }
 
@@ -708,54 +876,168 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
     var isShowingPrinterReceiptSimulation by mutableStateOf(false)
 
     fun queueInvoicePrintReceipt(context: Context, invoice: InvoiceWithDetails) {
-        val prefs = context.getSharedPreferences("receipt_prefs", Context.MODE_PRIVATE)
-        val shopName = prefs.getString("receipt_shop_name", "گالری طلای گیلدار (شعبه مرکزی)") ?: "گالری طلای گیلدار (شعبه مرکزی)"
-        val receiptTitle = prefs.getString("receipt_title", "فاکتور فروش معتبر کالا") ?: "فاکتور فروش معتبر کالا"
-        val receiptFooter = prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم."
-        val receiptAddress = prefs.getString("receipt_address", "آدرس: گالری اصلی طلا، تهران") ?: "آدرس: گالری اصلی طلا، تهران"
-        
-        val stringBuilder = StringBuilder()
-        stringBuilder.append("===============================\n")
-        stringBuilder.append("       $shopName\n")
-        stringBuilder.append("       $receiptTitle\n")
-        stringBuilder.append("===============================\n")
-        stringBuilder.append("شماره فاکتور: ${invoice.invoice.id}\n")
-        stringBuilder.append("تاریخ صدور: ${com.example.ui.util.JalaliCalendar.getJalaliDateTime(invoice.invoice.date)}\n")
-        stringBuilder.append("نام مشتری: ${invoice.customer?.name ?: "مشتری متفرقه"}\n")
-        stringBuilder.append("تلفن همراه: ${invoice.customer?.phone ?: "-"}\n")
-        stringBuilder.append("-------------------------------\n")
-        stringBuilder.append("شرح کالا / عیار / وزن (گرم) / فی کل \n")
-        stringBuilder.append("-------------------------------\n")
-        invoice.items.forEach { item ->
-            val productName = item.customName ?: "طلای زینتی"
-            stringBuilder.append("$productName (عیار 18) \n  ${item.quantity} عدد | فی: ${formatCurrency(item.unitPrice)} تومان\n")
-        }
-        stringBuilder.append("-------------------------------\n")
-        stringBuilder.append("مبلغ کل اقلام: ${formatCurrency(invoice.invoice.totalAmount.add(invoice.invoice.discount))} تومان\n")
-        if (invoice.invoice.discount > BigDecimal.ZERO) {
-            stringBuilder.append("تخفیف نقدی: ${formatCurrency(invoice.invoice.discount)} تومان\n")
-        }
-        stringBuilder.append("جمع نهایی پرداختی: ${formatCurrency(invoice.invoice.totalAmount)} تومان\n")
-        stringBuilder.append("نوع تسویه حساب: ${if (invoice.invoice.paymentType == "CASH") "نقدی (کامل)" else "اقساطی"}\n")
-        if (invoice.invoice.paymentType == "INSTALLMENT") {
-            stringBuilder.append("پیش پرداخت: ${formatCurrency(invoice.invoice.prepayment)} تومان\n")
-            stringBuilder.append("تعداد اقساط: ${invoice.invoice.installmentsCount} ماهه\n")
-            val monthlyPay = if (invoice.invoice.installmentsCount > 0) {
-                invoice.invoice.totalAmount.subtract(invoice.invoice.prepayment).divide(BigDecimal.valueOf(invoice.invoice.installmentsCount.toLong()), 0, java.math.RoundingMode.HALF_UP)
-            } else BigDecimal.ZERO
-            stringBuilder.append("مبلغ هر قسط: ${formatCurrency(monthlyPay)} تومان\n")
-        }
-        stringBuilder.append("\n===============================\n")
-        stringBuilder.append("$receiptFooter\n")
-        stringBuilder.append("   $receiptAddress\n")
-        stringBuilder.append("===============================\n")
-
-        activePrintJobPayload = stringBuilder.toString()
-        isShowingPrinterReceiptSimulation = true
-        
         viewModelScope.launch {
-            repository.logAction("RECEIPT_PRINT", "چاپ رسید فاکتور شماره ${invoice.invoice.id}")
+            val prefs = context.getSharedPreferences("receipt_prefs", Context.MODE_PRIVATE)
+            val paperMm = prefs.getInt("receipt_paper_mm", 80)
+            val profile = ReceiptProfile(
+                shopName = prefs.getString("receipt_shop_name", "گالری طلای گیلدار (شعبه مرکزی)") ?: "گالری طلای گیلدار (شعبه مرکزی)",
+                title = prefs.getString("receipt_title", "فاکتور فروش معتبر کالا") ?: "فاکتور فروش معتبر کالا",
+                footer = prefs.getString("receipt_footer", "از خرید و حسن انتخاب شما سپاسگزاریم.") ?: "از خرید و حسن انتخاب شما سپاسگزاریم.",
+                address = prefs.getString("receipt_address", "آدرس گالری") ?: "آدرس گالری",
+                paperWidthColumns = if (paperMm == 58) 32 else 42,
+                paperWidthDots = if (paperMm == 58) 384 else 576
+            )
+            val productsById = repository.getAllProductsForReceiptSync().associateBy { it.id }
+            activePrintJobPayload = ReceiptFormatter.format(
+                invoice = invoice,
+                productsById = productsById,
+                profile = profile
+            )
+            isShowingPrinterReceiptSimulation = true
+            repository.logAction(
+                "RECEIPT_PREVIEW_READY",
+                "پیش‌نمایش رسید داده‌محور فاکتور شماره ${invoice.invoice.id}"
+            )
         }
+    }
+
+    fun pairedBluetoothDevices(): List<PairedBluetoothDevice> =
+        hardwareManager?.pairedBluetoothDevices() ?: emptyList()
+
+    fun connectBluetoothHardware(
+        name: String,
+        address: String,
+        type: HardwareDeviceType
+    ) {
+        hardwareManager?.connectBluetooth(name, address, type)
+    }
+
+    fun usbSerialDevices(): List<com.example.hardware.core.HardwareDevice> =
+        hardwareManager?.usbSerialDevices().orEmpty()
+
+    fun connectUsbHardware(
+        deviceId: Int,
+        name: String,
+        type: HardwareDeviceType,
+        settings: SerialConnectionSettings = SerialConnectionSettings()
+    ) {
+        hardwareManager?.connectUsb(deviceId, name, type, settings)
+    }
+
+    fun disconnectHardware() {
+        hardwareManager?.disconnect()
+    }
+
+    fun disconnectHardware(type: HardwareDeviceType) {
+        hardwareManager?.disconnect(type)
+    }
+
+    fun printReceiptTextToHardware(payload: String, onResult: (HardwareResult<Unit>) -> Unit = {}) {
+        if (payload.isBlank()) {
+            onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
+            return
+        }
+        hardwareManager?.writeFor(
+            HardwareDeviceType.RECEIPT_PRINTER,
+            EscPosEncoder.encodeText(payload),
+            onResult
+        ) ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+    }
+
+    fun receiptPaperDots(context: Context): Int =
+        if (context.getSharedPreferences("receipt_prefs", Context.MODE_PRIVATE).getInt("receipt_paper_mm", 80) == 58) 384 else 576
+
+    fun printReceiptRasterToHardware(
+        payload: String,
+        widthDots: Int = 576,
+        onResult: (HardwareResult<Unit>) -> Unit = {}
+    ) {
+        if (payload.isBlank()) {
+            onResult(HardwareResult.Failure("محتوای رسید برای چاپ خالی است."))
+            return
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val bitmap = ReceiptRasterRenderer.render(
+                    payload,
+                    widthPx = widthDots.coerceIn(384, 576),
+                    typeface = applicationContext?.let { ResourcesCompat.getFont(it, R.font.vazirmatn) }
+                )
+                val bytes = EscPosEncoder.encodeRaster(bitmap)
+                hardwareManager?.writeFor(HardwareDeviceType.RECEIPT_PRINTER, bytes) { result ->
+                    bitmap.recycle()
+                    onResult(result)
+                } ?: run {
+                    bitmap.recycle()
+                    onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+                }
+            } catch (e: Exception) {
+                onResult(HardwareResult.Failure("ساخت تصویر رسید برای چاپ ناموفق بود.", e))
+            }
+        }
+    }
+
+    fun printActiveReceiptToHardware(onResult: (HardwareResult<Unit>) -> Unit = {}) =
+        printReceiptRasterToHardware(
+            activePrintJobPayload.orEmpty(),
+            applicationContext?.let { receiptPaperDots(it) } ?: 576,
+            onResult
+        )
+
+    fun printProductLabelToHardware(
+        product: Product,
+        protocol: LabelPrinterProtocol = LabelPrinterProtocol.ZPL,
+        dpi: Int = 203,
+        onResult: (HardwareResult<Unit>) -> Unit = {}
+    ) {
+        val barcode = com.example.domain.util.BarcodeResolver.getCanonicalBarcode(product)
+        when (protocol) {
+            LabelPrinterProtocol.ZPL -> {
+                hardwareManager?.writeFor(
+                    HardwareDeviceType.LABEL_PRINTER,
+                    GoldLabelZplEncoder.encode(product, barcode, dpi = dpi.coerceIn(203, 300)),
+                    onResult
+                ) ?: onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+            }
+            LabelPrinterProtocol.ESC_POS_RASTER -> {
+                viewModelScope.launch(Dispatchers.Default) {
+                    try {
+                        val bitmap = ReceiptRasterRenderer.render(
+                            GoldLabelFormatter.text(product, barcode),
+                            widthPx = (40 * dpi.coerceIn(203, 300) / 25.4f).toInt().coerceAtLeast(1),
+                            textSizePx = 20f,
+                            paddingPx = 8,
+                            typeface = applicationContext?.let { ResourcesCompat.getFont(it, R.font.vazirmatn) }
+                        )
+                        val bytes = EscPosEncoder.encodeRaster(bitmap)
+                        hardwareManager?.writeFor(HardwareDeviceType.LABEL_PRINTER, bytes) { result ->
+                            bitmap.recycle()
+                            onResult(result)
+                        } ?: run {
+                            bitmap.recycle()
+                            onResult(HardwareResult.Failure("مدیریت تجهیزات سخت‌افزاری در دسترس نیست."))
+                        }
+                    } catch (e: Exception) {
+                        onResult(HardwareResult.Failure("ساخت تصویر لیبل برای چاپ ناموفق بود.", e))
+                    }
+                }
+            }
+        }
+    }
+
+    fun compareWeight(expected: BigDecimal, measured: BigDecimal, tolerance: BigDecimal = BigDecimal("0.005")): WeightComparison {
+        val comparison = WeightComparisonEngine.compare(expected, measured, tolerance)
+        lastWeightComparison = comparison
+        return comparison
+    }
+
+    fun clearWeightComparison() {
+        lastWeightComparison = null
+    }
+
+    override fun onCleared() {
+        hardwareManager?.disconnect()
+        super.onCleared()
     }
 
     // --- NATIVE PDF EXPORTER (RTL Persian Layouts to Downloads) ---
@@ -1197,3 +1479,4 @@ class ShopViewModel(private val repository: ShopRepository) : ViewModel() {
         }
     }
 }
+
