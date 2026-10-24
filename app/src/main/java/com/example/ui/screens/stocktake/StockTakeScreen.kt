@@ -13,7 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -590,7 +590,7 @@ fun StockTakeScreen(
                                 .fillMaxWidth()
                                 .height(50.dp)
                         ) {
-                            Icon(Icons.Filled.FactCheck, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.FactCheck, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("بررسی مغایرت‌ها و ثبت نهایی انبارگردانی", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }

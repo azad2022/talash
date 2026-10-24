@@ -162,7 +162,7 @@ fun SplashScreen(
 
                     val crownPath = Path().apply {
                         moveTo(centerPt.x - crownW / 2f, crownY - crownH)
-                        quadraticBezierTo(centerPt.x, crownY, centerPt.x + crownW / 2f, crownY - crownH)
+                        quadraticTo(centerPt.x, crownY, centerPt.x + crownW / 2f, crownY - crownH)
                         lineTo(centerPt.x + crownW / 2.8f, crownY + 4.dp.toPx())
                         lineTo(centerPt.x - crownW / 2.8f, crownY + 4.dp.toPx())
                         close()

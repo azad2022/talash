@@ -66,6 +66,63 @@ class ShopRepository(
         prefs.edit().putString(key, BigDecimal.valueOf(value).toPlainString()).apply()
     }
 
+    companion object {
+        val DEFAULT_CATEGORIES = listOf(
+            "انگشتر",
+            "گردنبند",
+            "گوشواره",
+            "دستبند",
+            "النگو",
+            "سکه",
+            "شمش",
+            "طلای ۲۴ عیار",
+            "طلای آبشده نقدی",
+            "طلای متفرقه و مستعمل",
+            "سکه یک گرمی",
+            "ربع سکه",
+            "نیم سکه",
+            "سکه امامی",
+            "سکه بهار آزادی"
+        )
+    }
+
+    fun getCustomCategories(): List<String> {
+        val savedJson = prefs.getString("custom_categories_list", null)
+        if (savedJson.isNullOrBlank()) {
+            return DEFAULT_CATEGORIES
+        }
+        return try {
+            val jsonArray = org.json.JSONArray(savedJson)
+            val list = mutableListOf<String>()
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getString(i).trim()
+                if (item.isNotEmpty() && !list.contains(item)) {
+                    list.add(item)
+                }
+            }
+            if (list.isEmpty()) DEFAULT_CATEGORIES else list
+        } catch (e: Exception) {
+            DEFAULT_CATEGORIES
+        }
+    }
+
+    fun saveCustomCategories(categories: List<String>) {
+        val jsonArray = org.json.JSONArray()
+        categories.forEach { jsonArray.put(it.trim()) }
+        prefs.edit().putString("custom_categories_list", jsonArray.toString()).apply()
+    }
+
+    fun resetCategoriesToDefault(): List<String> {
+        saveCustomCategories(DEFAULT_CATEGORIES)
+        return DEFAULT_CATEGORIES
+    }
+
+    suspend fun updateTaxPercent(newTax: BigDecimal) {
+        val currentUser = getOrInitializeUser()
+        val updated = currentUser.copy(taxPercent = newTax)
+        updateUser(updated)
+    }
+
     suspend fun fetchOnlineRates(apiKey: String): Map<String, Double> {
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val rates = mutableMapOf<String, Double>()

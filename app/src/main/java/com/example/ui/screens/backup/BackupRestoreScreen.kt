@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -223,7 +224,7 @@ fun BackupRestoreScreen(
 
                     OutlinedButton(
                         onClick = { openBackupFileLauncher.launch("application/json") },
-                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.horizontalGradient(listOf(DarkMetallicGold, MetallicGold))),
+                        border = BorderStroke(1.dp, Brush.horizontalGradient(listOf(DarkMetallicGold, MetallicGold))),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()

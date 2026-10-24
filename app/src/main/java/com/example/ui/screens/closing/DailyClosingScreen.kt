@@ -12,7 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -300,7 +300,7 @@ fun DailyClosingScreen(
                                         ClosingMetricRow(
                                             label = "تعداد فاکتورهای صادر شده:",
                                             value = "${preview.invoiceCount} فقره",
-                                            icon = Icons.Filled.ReceiptLong
+                                            icon = Icons.AutoMirrored.Filled.ReceiptLong
                                         )
                                         ClosingMetricRow(
                                             label = "مجموع مبلغ فروش فاکتورها:",
@@ -364,7 +364,7 @@ fun DailyClosingScreen(
                                         ClosingMetricRow(
                                             label = "نرخ مبنای هر گرم ۱۸ عیار امروز:",
                                             value = "${viewModel.formatCurrency(preview.goldRateAtClose)} تومان",
-                                            icon = Icons.Filled.TrendingUp
+                                            icon = Icons.AutoMirrored.Filled.TrendingUp
                                         )
                                         ClosingMetricRow(
                                             label = "ارزش کل طلای انبار در نرخ امروز:",

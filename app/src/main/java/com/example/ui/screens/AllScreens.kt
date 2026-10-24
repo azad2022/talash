@@ -715,72 +715,6 @@ fun DashboardScreen(
             }
         }
 
-        // Quick Operations Row (Daily Closing & Stocktake)
-        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(this.maxLineSpan) }) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onNavigateToTab("daily_closing") },
-                    colors = CardDefaults.cardColors(containerColor = SmokyCard),
-                    border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(SmokyBronze),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Filled.LockClock, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(20.dp))
-                        }
-                        Column {
-                            Text("بستن روز", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            Text("محاسبه و بستن حساب", color = TextGray, fontSize = 10.sp)
-                        }
-                    }
-                }
-
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onNavigateToTab("stock_take") },
-                    colors = CardDefaults.cardColors(containerColor = SmokyCard),
-                    border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(SmokyBronze),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(20.dp))
-                        }
-                        Column {
-                            Text("انبارگردانی", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            Text("تطبیق بارکد و موجودی", color = TextGray, fontSize = 10.sp)
-                        }
-                    }
-                }
-            }
-        }
-
         // Action Notifications Center (Alerts Styled with design instructions)
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(this.maxLineSpan) }) {
             if (lowStockCount > 0 || readyRepairs.isNotEmpty() || overdueInstallments.isNotEmpty()) {
@@ -1751,6 +1685,9 @@ fun WarehouseScreen(
         }
     }
 
+    // Dynamic Categories
+    val dynamicCategories by viewModel.categories.collectAsState()
+
     // Filter items
     val filteredProducts = listProducts.filter { prod ->
         val barcode = "G-${prod.id.toString().padStart(6, '0')}"
@@ -1782,9 +1719,9 @@ fun WarehouseScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("انبارداری دیجیتال طلا و جواهرات", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-                        Text("ثبت موجودی گرمی، عیار سنجی و هشدار اتمام کالاها", style = MaterialTheme.typography.bodySmall, color = TextGray)
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("انبار طلای گالری", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("موجودی، عیارسنجی و رصد کالاها", style = MaterialTheme.typography.bodySmall, color = TextGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     
                     FloatingActionButton(
@@ -1881,7 +1818,7 @@ fun WarehouseScreen(
                         .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    (listOf("همه", "کسری موجودی") + ProductCategory.allTitles()).forEach { cat ->
+                    (listOf("همه", "کسری موجودی") + dynamicCategories).forEach { cat ->
                         val selected = selectedCategoryFilter == cat
                         val isWarningChip = cat == "کسری موجودی"
                         Box(
@@ -2108,11 +2045,12 @@ fun WarehouseScreen(
                                         colors = ButtonDefaults.buttonColors(containerColor = SmokyBronze),
                                         border = BorderStroke(1.dp, MetallicGold.copy(0.3f)),
                                         shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.height(36.dp)
+                                        modifier = Modifier.height(36.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
                                         Icon(Icons.Filled.ShoppingCart, contentDescription = "سبد خرید", tint = MetallicGold, modifier = Modifier.size(14.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("افزودن به فاکتور", fontSize = 10.sp, color = MetallicGold, fontWeight = FontWeight.Bold)
+                                        Text("افزودن به فاکتور", fontSize = 10.sp, color = MetallicGold, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -2286,7 +2224,7 @@ fun WarehouseScreen(
                         // Select Category
                         Text("دسته‌بندی جواهر:", fontSize = 11.sp, color = TextGray)
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                            ProductCategory.allTitles().forEach { cat ->
+                            dynamicCategories.forEach { cat ->
                                 val selected = addCategory == cat
                                 FilterChip(
                                     selected = selected,
@@ -2947,6 +2885,8 @@ fun InvoiceScreen(
     var isInvoiceScannerOpen by remember { mutableStateOf(false) }
     var hardwareScannerEnabled by remember { mutableStateOf(false) }
     val hardwareStableWeight by viewModel.hardwareLatestStableWeight.collectAsState()
+    val hardwareConnectedDevices by viewModel.hardwareConnectedDevices.collectAsState()
+    val isScaleConnected = hardwareConnectedDevices.containsKey(com.example.hardware.core.HardwareDeviceType.SCALE)
 
     androidx.compose.runtime.DisposableEffect(hardwareScannerEnabled) {
         com.example.hardware.barcode.HardwareBarcodeBus.setEnabled(hardwareScannerEnabled)
@@ -3054,70 +2994,89 @@ fun InvoiceScreen(
         contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = SmokyCard),
-                border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.35f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+        if (isScaleConnected) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                    border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.35f))
                 ) {
-                    Text("اتصال ترازو و وزن سریع", color = MetallicGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    OutlinedTextField(
-                        value = weightedItemWeight,
-                        onValueChange = { weightedItemWeight = it },
-                        label = { Text("وزن (گرم)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Button(
-                            onClick = {
-                                val stable = hardwareStableWeight
-                                val onlyItem = cartItems.singleOrNull()
-                                if (stable == null) {
-                                    Toast.makeText(context, "هنوز وزن پایدار دریافت نشده است.", Toast.LENGTH_SHORT).show()
-                                } else if (onlyItem == null) {
-                                    Toast.makeText(context, "برای ثبت وزن مستقیم، سبد باید دقیقاً یک قلم داشته باشد.", Toast.LENGTH_SHORT).show()
-                                } else if (onlyItem.qty != 1) {
-                                    Toast.makeText(context, "برای وزن‌کشی مستقیم، تعداد این قلم باید دقیقاً ۱ باشد.", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
-                                    viewModel.applyStableWeightToDraft(onlyItem.product.id, stable.grams)
-                                    Toast.makeText(context, "وزن پایدار برای قلم ثبت و قیمت با وزن جدید بازمحاسبه شد.", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("ثبت در قلم فاکتور", fontSize = 11.sp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Filled.Scale, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(18.dp))
+                                Text("ترازو دیجیتال متصل است", color = MetallicGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            Text(
+                                hardwareStableWeight?.grams?.stripTrailingZeros()?.toPlainString()?.plus(" گرم ✓") ?: "در انتظار ثبات وزن...",
+                                color = if (hardwareStableWeight != null) StatusGreen else TextGray,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
 
-                        Button(
-                            onClick = {
-                                val stable = hardwareStableWeight
-                                if (stable != null) {
-                                    weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
-                                } else {
-                                    Toast.makeText(context, "هنوز وزن پایدار از ترازو دریافت نشده است.", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("ثبت وزن پایدار", fontSize = 11.sp)
-                        }
-                        Text(
-                            hardwareStableWeight?.grams?.stripTrailingZeros()?.toPlainString()?.plus(" گرم ✓") ?: "ترازو متصل نیست/وزن پایدار ندارد",
-                            color = if (hardwareStableWeight != null) StatusGreen else TextGray,
-                            fontSize = 10.sp,
-                            modifier = Modifier.weight(1f)
+                        OutlinedTextField(
+                            value = weightedItemWeight,
+                            onValueChange = { weightedItemWeight = it },
+                            label = { Text("وزن خوانده‌شده (گرم)") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth()
                         )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val stable = hardwareStableWeight
+                                    val onlyItem = cartItems.singleOrNull()
+                                    if (stable == null) {
+                                        Toast.makeText(context, "هنوز وزن پایدار دریافت نشده است.", Toast.LENGTH_SHORT).show()
+                                    } else if (onlyItem == null) {
+                                        Toast.makeText(context, "برای ثبت وزن مستقیم، سبد باید دقیقاً یک قلم داشته باشد.", Toast.LENGTH_SHORT).show()
+                                    } else if (onlyItem.qty != 1) {
+                                        Toast.makeText(context, "برای وزن‌کشی مستقیم، تعداد این قلم باید دقیقاً ۱ باشد.", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
+                                        viewModel.applyStableWeightToDraft(onlyItem.product.id, stable.grams)
+                                        Toast.makeText(context, "وزن پایدار برای قلم ثبت و قیمت با وزن جدید بازمحاسبه شد.", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MetallicGold, contentColor = DarkObsidian)
+                            ) {
+                                Text("ثبت در فاکتور", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val stable = hardwareStableWeight
+                                    if (stable != null) {
+                                        weightedItemWeight = stable.grams.stripTrailingZeros().toPlainString()
+                                    } else {
+                                        Toast.makeText(context, "هنوز وزن پایدار از ترازو دریافت نشده است.", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.6f))
+                            ) {
+                                Text("ثبت وزن پایدار", fontSize = 12.sp, color = MetallicGold, maxLines = 1, softWrap = false)
+                            }
+                        }
                     }
                 }
             }
@@ -3159,15 +3118,19 @@ fun InvoiceScreen(
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
-                        "صندوق ثبت فاکتور لوکس فروشگاهی",
+                        "صندوق صدور فاکتور",
                         style = MaterialTheme.typography.titleMedium,
                         color = MetallicGold,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        "صورت حساب رسمی، تخفیف، انتخاب نوع تسویه نقدی و اقساطی",
+                        "فاکتور رسمی • تسویه نقدی و اقساطی",
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextGray
+                        color = TextGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -3493,9 +3456,9 @@ fun CustomersScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text("پرونده و حساب مشتریان گالری", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-                    Text("تاریخچه خرید، تسویه بدهی و ردیابی اقساط تا سررسید", style = MaterialTheme.typography.bodySmall, color = TextGray)
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text("حساب مشتریان", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("تاریخچه خرید، مانده‌حساب و اقساط", style = MaterialTheme.typography.bodySmall, color = TextGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
                 FloatingActionButton(
@@ -3860,9 +3823,9 @@ fun RepairsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text("مرکز تعمیرات سفارشات طلا", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-                    Text("رهگیری جزییات ذوب، فریم، فاکتور دستمزد تعمیرات", style = MaterialTheme.typography.bodySmall, color = TextGray)
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text("تعمیرات و سفارشات", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("پیگیری وضعیت ذوب، فریم و دستمزد", style = MaterialTheme.typography.bodySmall, color = TextGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
                 FloatingActionButton(
@@ -4126,8 +4089,8 @@ fun ReportsScreen(
             .background(Color.Transparent)
             .padding(16.dp)
     ) {
-        Text("گزارش مالی", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-        Text("دریافت خلاصه عملکرد، خروجی‌های رسمی فاکتورها، تراکنشها و مدیریت سود قانونی گالری گیلدار", style = MaterialTheme.typography.bodySmall, color = TextGray)
+        Text("گزارش‌های مالی و فروش", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("خلاصه عملکرد، اسناد فاکتور و تحلیل سود", style = MaterialTheme.typography.bodySmall, color = TextGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -4476,9 +4439,10 @@ fun ReportsScreen(
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
                                             border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f)),
                                             shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                                             modifier = Modifier.height(30.dp)
                                         ) {
-                                            Text("ابطال فاکتور", fontSize = 9.sp, color = Color(0xFFFF5252))
+                                            Text("ابطال فاکتور", fontSize = 9.sp, color = Color(0xFFFF5252), maxLines = 1, softWrap = false)
                                         }
                                     }
 
@@ -4486,11 +4450,12 @@ fun ReportsScreen(
                                         onClick = { viewModel.queueInvoicePrintReceipt(context, itemWC) },
                                         colors = ButtonDefaults.buttonColors(containerColor = SmokyBronze),
                                         shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                                         modifier = Modifier.height(30.dp)
                                     ) {
                                         Icon(Icons.Filled.Print, contentDescription = "رسید چاپی", tint = MetallicGold, modifier = Modifier.size(12.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("چاپ فیش", fontSize = 9.sp, color = MetallicGold)
+                                        Text("چاپ فیش", fontSize = 9.sp, color = MetallicGold, maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -4554,8 +4519,8 @@ fun AuditLogsScreen(
             .background(Color.Transparent)
             .padding(16.dp)
     ) {
-        Text("گزارشات برنامه و ممیزی سیستم", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-        Text("کنترل لحظه‌ای تمامی تغییرات، ردیابی اقدامات و رخدادهای عملکردی گالری گیلدار", style = MaterialTheme.typography.bodySmall, color = TextGray)
+        Text("ممیزی و گزارش رخدادها", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("رهگیری تغییرات، ثبت وقایع و اقدامات امنیتی", style = MaterialTheme.typography.bodySmall, color = TextGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -4617,8 +4582,8 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text("تنظیمات هسته نرم‌افزار", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold)
-            Text("کنترل متغیرهای کسب‌وکار و پشتیبان‌گیری محلی اطلاعات مغازه", style = MaterialTheme.typography.bodySmall, color = TextGray)
+            Text("تنظیمات نرم‌افزار", style = MaterialTheme.typography.titleMedium, color = MetallicGold, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("نرخ‌ها، مالیات، دسته‌ها و پشتیبان‌گیری", style = MaterialTheme.typography.bodySmall, color = TextGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
 
         // 1. Lux Aesthetic Theme Selector Card
@@ -4850,6 +4815,14 @@ fun SettingsScreen(
 
         item {
             BaseRatesSettingsCard(viewModel)
+        }
+
+        item {
+            TaxSettingsCard(viewModel)
+        }
+
+        item {
+            CategoryManagementSettingsCard(viewModel)
         }
 
         // 2. Backup & Restore Operations Card
@@ -5833,6 +5806,578 @@ fun BaseRatesSettingsCard(viewModel: com.example.ui.viewmodel.ShopViewModel) {
                                 )
                                 Text("اتصال آنلاین", color = StatusGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// TAX SETTINGS CARD (IRANIAN GOLD VAT)
+// ==========================================
+@Composable
+fun TaxSettingsCard(viewModel: ShopViewModel) {
+    val context = LocalContext.current
+    val userConfig by viewModel.userConfig.collectAsState()
+    val currentTax = userConfig?.taxPercent ?: BigDecimal("9.0")
+
+    var taxInput by remember(currentTax) { mutableStateOf(currentTax.stripTrailingZeros().toPlainString()) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("tax_settings_card"),
+        colors = CardDefaults.cardColors(containerColor = SmokyCard),
+        border = BorderStroke(1.dp, CharcoalBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MetallicGold.copy(0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Percent,
+                        contentDescription = null,
+                        tint = MetallicGold,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        "تنظیم نرخ مالیات بر ارزش افزوده (VAT)",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "ماده ۲۶: اصل طلا معاف و مالیات فقط بر اجرت و سود اعمال می‌شود",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextGray,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            HorizontalDivider(color = CharcoalBorder, thickness = 1.dp)
+
+            // Current Tax Status Banner
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SmokyBronze)
+                    .border(1.dp, MetallicGold.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("نرخ فعال در محاسبات و فاکتورها:", fontSize = 11.sp, color = TextGray)
+                    Text(
+                        "${currentTax.stripTrailingZeros().toPlainString()} درصد",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MetallicGold
+                    )
+                }
+
+                // Official Legal Rate Badge / Quick Button
+                Button(
+                    onClick = {
+                        viewModel.resetTaxPercentToDefault(
+                            onSuccess = { msg ->
+                                taxInput = "9"
+                                errorMessage = null
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SmokyCard),
+                    border = BorderStroke(1.dp, MetallicGold.copy(0.4f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.AccountBalance, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("نرخ قانونی (۹٪)", fontSize = 11.sp, color = MetallicGold, maxLines = 1, softWrap = false)
+                }
+            }
+
+            // Stepper and Manual Edit Row
+            Text("تغییر دستی درصد مالیات:", fontSize = 12.sp, color = TextWhite, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Decrement Button
+                IconButton(
+                    onClick = {
+                        val currentVal = taxInput.toDoubleOrNull() ?: currentTax.toDouble()
+                        val newVal = (currentVal - 0.5).coerceAtLeast(0.0)
+                        taxInput = String.format(Locale.US, "%.1f", newVal).removeSuffix(".0")
+                        errorMessage = null
+                    },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(SmokyBronze)
+                        .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
+                ) {
+                    Icon(Icons.Filled.Remove, contentDescription = "کاهش مالیات", tint = TextWhite)
+                }
+
+                // OutlinedTextField for exact numeric input
+                OutlinedTextField(
+                    value = taxInput,
+                    onValueChange = {
+                        taxInput = it
+                        errorMessage = null
+                    },
+                    modifier = Modifier.weight(1f).testTag("tax_rate_input"),
+                    label = { Text("درصد مالیات (%)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        focusedBorderColor = MetallicGold,
+                        unfocusedBorderColor = CharcoalBorder
+                    )
+                )
+
+                // Increment Button
+                IconButton(
+                    onClick = {
+                        val currentVal = taxInput.toDoubleOrNull() ?: currentTax.toDouble()
+                        val newVal = (currentVal + 0.5).coerceAtMost(100.0)
+                        taxInput = String.format(Locale.US, "%.1f", newVal).removeSuffix(".0")
+                        errorMessage = null
+                    },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(SmokyBronze)
+                        .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "افزایش مالیات", tint = TextWhite)
+                }
+            }
+
+            errorMessage?.let {
+                Text(it, color = Color.Red, fontSize = 11.sp)
+            }
+
+            // Save Button
+            Button(
+                onClick = {
+                    val parsed = taxInput.toDoubleOrNull()
+                    if (parsed == null || parsed < 0.0 || parsed > 100.0) {
+                        errorMessage = "لطفاً عددی معتبر بین ۰ تا ۱۰۰ وارد نمایید."
+                    } else {
+                        viewModel.updateTaxPercent(
+                            newTax = parsed,
+                            onSuccess = { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            },
+                            onError = { err ->
+                                errorMessage = err
+                            }
+                        )
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().testTag("save_tax_button")
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = null, tint = DarkObsidian, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("ذخیره نرخ جدید مالیات", color = DarkObsidian, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ==========================================
+// CATEGORY MANAGEMENT SETTINGS CARD
+// ==========================================
+@Composable
+fun CategoryManagementSettingsCard(viewModel: ShopViewModel) {
+    val context = LocalContext.current
+    val categories by viewModel.categories.collectAsState()
+
+    var showAddDialog by remember { mutableStateOf(false) }
+    var newCategoryName by remember { mutableStateOf("") }
+    var categoryToEdit by remember { mutableStateOf<String?>(null) }
+    var editedCategoryName by remember { mutableStateOf("") }
+    var categoryToDelete by remember { mutableStateOf<String?>(null) }
+    var showResetConfirmDialog by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("category_management_card"),
+        colors = CardDefaults.cardColors(containerColor = SmokyCard),
+        border = BorderStroke(1.dp, CharcoalBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MetallicGold.copy(0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Category,
+                        contentDescription = null,
+                        tint = MetallicGold,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        "مدیریت دسته‌بندی‌های کالا و طلا",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "تعریف دسته‌بندی جدید، ویرایش، حذف یا بازنشانی به پیش‌فرض",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextGray,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            HorizontalDivider(color = CharcoalBorder, thickness = 1.dp)
+
+            // Action Buttons (Add + Reset)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        newCategoryName = ""
+                        showAddDialog = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SmokyBronze),
+                    border = BorderStroke(1.dp, MetallicGold.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier.weight(1f).testTag("add_category_button")
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, tint = MetallicGold, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("دسته جدید", color = MetallicGold, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                }
+
+                OutlinedButton(
+                    onClick = { showResetConfirmDialog = true },
+                    border = BorderStroke(1.dp, CharcoalBorder),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier.weight(1f).testTag("reset_categories_button")
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, tint = TextGray, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("تنظیمات اولیه", color = TextGray, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+            }
+
+            Text("دسته‌بندی‌های فعال (${categories.size} مورد):", fontSize = 11.sp, color = TextGray)
+
+            // Grid layout of categories using chunked rows
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                categories.chunked(2).forEach { rowPair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowPair.forEach { cat ->
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(DarkObsidian)
+                                    .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    cat,
+                                    color = TextWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    // Edit Icon Button
+                                    IconButton(
+                                        onClick = {
+                                            categoryToEdit = cat
+                                            editedCategoryName = cat
+                                        },
+                                        modifier = Modifier.size(26.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Edit,
+                                            contentDescription = "ویرایش $cat",
+                                            tint = MetallicGold,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+
+                                    // Delete Icon Button
+                                    IconButton(
+                                        onClick = {
+                                            categoryToDelete = cat
+                                        },
+                                        modifier = Modifier.size(26.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = "حذف $cat",
+                                            tint = Color.Red.copy(0.75f),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (rowPair.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ADD CATEGORY DIALOG
+    if (showAddDialog) {
+        Dialog(onDismissRequest = { showAddDialog = false }) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, MetallicGold),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("افزودن دسته‌بندی جدید", color = MetallicGold, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = newCategoryName,
+                        onValueChange = { newCategoryName = it },
+                        label = { Text("نام دسته‌بندی (مثلاً سرویس کامل طلا)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite,
+                            focusedBorderColor = MetallicGold,
+                            unfocusedBorderColor = CharcoalBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                viewModel.addCategory(
+                                    name = newCategoryName,
+                                    onSuccess = { msg ->
+                                        showAddDialog = false
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { err ->
+                                        Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("ثبت دسته", color = DarkObsidian, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+                        OutlinedButton(
+                            onClick = { showAddDialog = false },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("انصراف", color = TextWhite, maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // EDIT CATEGORY DIALOG
+    categoryToEdit?.let { oldCat ->
+        Dialog(onDismissRequest = { categoryToEdit = null }) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, MetallicGold),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("ویرایش دسته‌بندی", color = MetallicGold, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = editedCategoryName,
+                        onValueChange = { editedCategoryName = it },
+                        label = { Text("نام دسته‌بندی") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite,
+                            focusedBorderColor = MetallicGold,
+                            unfocusedBorderColor = CharcoalBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                viewModel.updateCategory(
+                                    oldName = oldCat,
+                                    newName = editedCategoryName,
+                                    onSuccess = { msg ->
+                                        categoryToEdit = null
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { err ->
+                                        Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("ذخیره تغییرات", color = DarkObsidian, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+                        OutlinedButton(
+                            onClick = { categoryToEdit = null },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("انصراف", color = TextWhite, maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // DELETE CATEGORY DIALOG
+    categoryToDelete?.let { cat ->
+        Dialog(onDismissRequest = { categoryToDelete = null }) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color.Red),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("حذف دسته‌بندی «$cat»", color = Color.Red, fontWeight = FontWeight.Bold)
+                    Text("آیا از حذف این دسته‌بندی اطمینان دارید؟", color = TextWhite, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                viewModel.deleteCategory(
+                                    name = cat,
+                                    onSuccess = { msg ->
+                                        categoryToDelete = null
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { err ->
+                                        Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("حذف شود", color = TextWhite, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+                        OutlinedButton(
+                            onClick = { categoryToDelete = null },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("انصراف", color = TextWhite, maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // RESET TO DEFAULTS CONFIRMATION DIALOG
+    if (showResetConfirmDialog) {
+        Dialog(onDismissRequest = { showResetConfirmDialog = false }) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SmokyCard),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, MetallicGold),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("بازگشت به دسته‌بندی‌های اولیه", color = MetallicGold, fontWeight = FontWeight.Bold)
+                    Text(
+                        "با انجام این عمل، لیست دسته‌بندی‌ها به ۱۵ دسته استاندارد پیش‌فرض نرم‌افزار بازنشانی خواهد شد. آیا ادامه می‌دهید؟",
+                        color = TextWhite,
+                        fontSize = 12.sp
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                viewModel.resetCategoriesToDefault(
+                                    onSuccess = { msg ->
+                                        showResetConfirmDialog = false
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MetallicGold),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("تایید بازنشانی", color = DarkObsidian, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+                        OutlinedButton(
+                            onClick = { showResetConfirmDialog = false },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("انصراف", color = TextWhite, maxLines = 1, softWrap = false)
                         }
                     }
                 }

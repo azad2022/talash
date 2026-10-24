@@ -134,6 +134,108 @@ class ShopViewModel(private val repository: ShopRepository, appContext: Context?
     var goldPriceMode by mutableStateOf(repository.getGoldPriceMode()) // "OFFLINE" or "ONLINE"
         private set
 
+    // --- DYNAMIC CATEGORIES MANAGEMENT ---
+    private val _categories = MutableStateFlow<List<String>>(repository.getCustomCategories())
+    val categories: StateFlow<List<String>> = _categories.asStateFlow()
+
+    fun addCategory(name: String, onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) {
+            onError("نام دسته‌بندی نمی‌تواند خالی باشد.")
+            return
+        }
+        val current = _categories.value.toMutableList()
+        if (current.any { it.equals(trimmed, ignoreCase = true) }) {
+            onError("این دسته‌بندی قبلاً ثبت شده است.")
+            return
+        }
+        current.add(trimmed)
+        repository.saveCustomCategories(current)
+        _categories.value = current
+        viewModelScope.launch {
+            repository.logAction("ADD_CATEGORY", "افزودن دسته‌بندی جدید: $trimmed")
+        }
+        onSuccess("دسته‌بندی «$trimmed» با موفقیت افزوده شد.")
+    }
+
+    fun updateCategory(oldName: String, newName: String, onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {
+        val trimmedOld = oldName.trim()
+        val trimmedNew = newName.trim()
+        if (trimmedNew.isEmpty()) {
+            onError("نام جدید دسته‌بندی نمی‌تواند خالی باشد.")
+            return
+        }
+        val current = _categories.value.toMutableList()
+        val index = current.indexOfFirst { it.equals(trimmedOld, ignoreCase = true) }
+        if (index == -1) {
+            onError("دسته‌بندی مورد نظر یافت نشد.")
+            return
+        }
+        if (current.any { it.equals(trimmedNew, ignoreCase = true) && !it.equals(trimmedOld, ignoreCase = true) }) {
+            onError("دسته‌بندی دیگری با این نام وجود دارد.")
+            return
+        }
+        current[index] = trimmedNew
+        repository.saveCustomCategories(current)
+        _categories.value = current
+        viewModelScope.launch {
+            repository.logAction("EDIT_CATEGORY", "ویرایش دسته‌بندی از $trimmedOld به $trimmedNew")
+        }
+        onSuccess("دسته‌بندی با موفقیت به «$trimmedNew» تغییر یافت.")
+    }
+
+    fun deleteCategory(name: String, onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {
+        val trimmed = name.trim()
+        val current = _categories.value.toMutableList()
+        if (!current.removeIf { it.equals(trimmed, ignoreCase = true) }) {
+            onError("دسته‌بندی یافت نشد.")
+            return
+        }
+        if (current.isEmpty()) {
+            current.addAll(ShopRepository.DEFAULT_CATEGORIES)
+        }
+        repository.saveCustomCategories(current)
+        _categories.value = current
+        viewModelScope.launch {
+            repository.logAction("DELETE_CATEGORY", "حذف دسته‌بندی: $trimmed")
+        }
+        onSuccess("دسته‌بندی «$trimmed» حذف شد.")
+    }
+
+    fun resetCategoriesToDefault(onSuccess: (String) -> Unit = {}) {
+        val defaults = repository.resetCategoriesToDefault()
+        _categories.value = defaults
+        viewModelScope.launch {
+            repository.logAction("RESET_CATEGORIES", "بازنشانی دسته‌بندی‌ها به تنظیمات اولیه کارخانه")
+        }
+        onSuccess("تمام دسته‌بندی‌ها به حالت پیش‌فرض اولیه بازگردانده شدند.")
+    }
+
+    // --- TAX PERCENT SETTING ---
+    fun updateTaxPercent(newTax: Double, onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {
+        if (newTax < 0.0 || newTax > 100.0) {
+            onError("نرخ مالیات باید عددی بین ۰ تا ۱۰۰ باشد.")
+            return
+        }
+        viewModelScope.launch {
+            val taxBd = BigDecimal.valueOf(newTax).setScale(2, RoundingMode.HALF_UP)
+            repository.updateTaxPercent(taxBd)
+            calcTaxRate = taxBd.toPlainString()
+            repository.logAction("UPDATE_TAX", "تغییر نرخ مالیات بر ارزش افزوده به $taxBd درصد")
+            onSuccess("نرخ مالیات با موفقیت به $taxBd% تغییر یافت.")
+        }
+    }
+
+    fun resetTaxPercentToDefault(onSuccess: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val defaultTax = BigDecimal("9.0")
+            repository.updateTaxPercent(defaultTax)
+            calcTaxRate = defaultTax.toPlainString()
+            repository.logAction("RESET_TAX", "بازنشانی نرخ مالیات به نرخ قانونی طلافروشان (۹.۰٪)")
+            onSuccess("نرخ مالیات به نرخ استاندارد طلافروشان ایران (۹.۰٪) بازنشانی شد.")
+        }
+    }
+
     var goldPriceApiKey by mutableStateOf(repository.getGoldPriceApiKey())
         private set
 
